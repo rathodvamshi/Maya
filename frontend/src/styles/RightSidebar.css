@@ -1,0 +1,196 @@
+/* =========================
+   RIGHT SIDEBAR STYLES
+   ========================= */
+.right-sidebar {
+  position: fixed;
+  right: 0;
+  top: 60px;
+  bottom: 0;
+  border-left: 2px solid rgb(77, 78, 110);
+  width: 64px; /* collapsed width */
+  background: linear-gradient(180deg, #171717 0%, #3e3e40 100%);
+  color: #fff;
+  transition: width 0.3s ease, box-shadow 0.3s ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Expanded */
+.right-sidebar:hover {
+  width: 290px;
+}
+
+/* Sidebar Icons */
+.sidebar-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 16px;
+}
+
+.sidebar-icon {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.sidebar-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  transform: scale(1.05);
+}
+.sidebar-icon.active {
+  background: rgba(0, 123, 255, 0.2);
+  color: #4da6ff;
+  box-shadow: inset 0 0 6px rgba(0, 123, 255, 0.4);
+}
+
+/* Task Badge */
+.task-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #ff4b5c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Sidebar Content */
+.sidebar-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #555 transparent;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.right-sidebar:hover .sidebar-content {
+  opacity: 1;
+}
+
+/* Sections */
+.sidebar-section {
+  margin-bottom: 20px;
+}
+.sidebar-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #ccc;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.user-email {
+  font-size: 13px;
+  color: #aaa;
+  background: #2a2a40;
+  padding: 8px;
+  border-radius: 8px;
+  word-break: break-word;
+}
+
+/* Add Task Button */
+.add-task-btn-icon {
+  background: #3a3a55;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.25s ease;
+}
+.add-task-btn-icon:hover {
+  background: #4a4a70;
+}
+
+/* Task List */
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.task-item {
+  background: #2b2b44;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.25s ease, transform 0.2s ease;
+}
+.task-item:hover {
+  background: #3a3a55;
+  transform: translateY(-2px);
+}
+.task-details {
+  display: flex;
+  flex-direction: column;
+}
+.task-content {
+  font-size: 14px;
+  color: #fff;
+  font-weight: 500;
+}
+.task-due-date {
+  font-size: 12px;
+  color: #aaa;
+}
+
+/* Task Actions */
+.task-actions {
+  display: flex;
+  gap: 8px;
+}
+.task-actions button {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+.task-actions button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* Completed Tasks */
+.completed-tasks .task-item {
+  background: #252538;
+  color: #888;
+  text-decoration: line-through;
+}
+.completed-tasks .task-item:hover {
+  background: #33334a;
+}
+
+/* No tasks */
+.no-tasks {
+  font-size: 13px;
+  color: #888;
+  text-align: center;
+  padding: 12px;
+  background: #2a2a40;
+  border-radius: 8px;
+}

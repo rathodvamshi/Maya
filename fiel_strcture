@@ -1,0 +1,38 @@
+backend/
+├─ .env
+├─ celerybeat-schedule.bak
+├─ celerybeat-schedule.dat
+├─ celerybeat-schedule.dir
+├─ requirements.txt
+├─ test_neo4j.py
+├─ venv/
+└─ app/
+   ├─ main.py
+   ├─ config.py
+   ├─ database.py
+   ├─ models.py
+   ├─ prompt_templates.py
+   ├─ security.py
+   ├─ celery_worker.py
+   ├─ __init__.py
+   ├─ routers/
+   │  ├─ auth.py
+   │  ├─ chat.py
+   │  ├─ feedback.py
+   │  ├─ sessions.py
+   │  └─ __pycache__/
+   └─ services/
+      ├─ ai_service.py
+      ├─ anthropic_service.py
+      ├─ cohere_service.py
+      ├─ embedding_service.py
+      ├─ gemini.py
+      ├─ gemini_service.py
+      ├─ neo4j_service.py
+      ├─ nlu.py
+      ├─ openai_service.py
+      ├─ pinecone_service.py
+      ├─ redis_cache.py
+      ├─ redis_service.py
+      ├─ sessionService.js
+      └─ __init__.py

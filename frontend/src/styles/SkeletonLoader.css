@@ -1,0 +1,42 @@
+/* frontend/src/styles/SkeletonLoader.css */
+
+.skeleton {
+  background-color: #e0e0e0; /* A light grey color */
+  border-radius: 4px;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% {
+    background-color: #e0e0e0;
+  }
+  50% {
+    background-color: #f0f0f0; /* A slightly lighter grey */
+  }
+  100% {
+    background-color: #e0e0e0;
+  }
+}
+
+.skeleton-text {
+  width: 90%;
+  height: 1.2em;
+  margin-bottom: 0.5em;
+}
+
+.skeleton-text-medium {
+  width: 70%;
+  height: 1.2em;
+  margin-bottom: 0.5em;
+}
+
+.skeleton-text-short {
+  width: 50%;
+  height: 1.2em;
+}
+
+.message-wrapper .avatar.skeleton {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+}

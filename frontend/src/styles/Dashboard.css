@@ -1,0 +1,709 @@
+/* ----------------------------
+   General Reset & Fonts
+---------------------------- */
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: #f5f6fa;
+    color: #333;
+}
+
+button {
+    cursor: pointer;
+}
+
+/* ----------------------------
+   Loading Spinner
+---------------------------- */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.spinner {
+    border: 6px solid #f3f3f3;
+    border-top: 6px solid #5c7cfa;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.error-message {
+    font-weight: bold;
+    color: #e74c3c;
+}
+
+.error-detail {
+    margin-bottom: 15px;
+}
+
+.retry-btn {
+    padding: 8px 20px;
+    background-color: #5c7cfa;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    transition: all 0.3s ease;
+}
+
+.retry-btn:hover {
+    background-color: #4a63d3;
+}
+
+/* ----------------------------
+   Dashboard Layout
+---------------------------- */
+.dashboard-container {
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+    background: #1a1a1a;
+}
+
+/* Maya Title Container - Starts collapsed */
+.maya-title-container {
+    position: fixed;
+    top: 20px;
+    left: 100px;
+    z-index: 1003;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: fadeInTitle 1s ease-out;
+    transition: left 0.4s ease;
+}
+
+/* Maya Title responsive to sidebar state */
+.maya-title-container.sidebar-expanded {
+    left: 340px; /* Move right when sidebar is expanded */
+}
+
+.maya-title-container.sidebar-collapsed {
+    left: 100px; /* Original position when sidebar is collapsed */
+}
+
+/* Tablet responsive positioning */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .maya-title-container.sidebar-expanded {
+        left: 280px; /* Slightly less movement on tablets */
+    }
+}
+
+/* Maya Logo */
+.maya-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 20px;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+}
+
+/* Maya Title */
+.maya-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+    text-shadow: 0 2px 10px rgba(255, 255, 255, 0.2);
+    letter-spacing: -0.01em;
+}
+
+@keyframes fadeInTitle {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Chat Window - Increased width with single color scheme */
+.dashboard-main {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #1a1a1a;
+    position: relative;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    z-index: 1;
+    padding: 80px 60px 20px 60px;
+    transition: all 0.3s ease;
+}
+
+/* Backdrop overlay when sidebars are open */
+.sidebar-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.sidebar-backdrop.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 1200px) {
+    .dashboard-main {
+        max-width: 700px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .dashboard-main {
+        max-width: 100%;
+        padding: 80px 30px 20px 30px;
+    }
+    
+    .chat-input-area {
+        max-width: 600px;
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-main {
+        max-width: 100%;
+        padding: 90px 15px 15px 15px;
+    }
+    
+    .maya-title-container {
+        left: 15px !important; /* Override sidebar positioning on mobile */
+        top: 15px;
+        gap: 8px;
+    }
+    
+    .maya-logo {
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+    }
+    
+    .maya-title {
+        font-size: 1.4rem;
+    }
+    
+    .chat-input-area {
+        max-width: 100%;
+        padding: 6px;
+        gap: 6px;
+    }
+    
+    .upload-toggle-btn,
+    .mic-button {
+        width: 35px;
+        height: 35px;
+        font-size: 14px;
+    }
+    
+    .send-button {
+        padding: 10px 16px;
+        font-size: 13px;
+        min-width: 80px;
+    }
+    
+    .chat-input {
+        padding: 12px 18px;
+        font-size: 16px;
+    }
+    
+    .upload-popup {
+        bottom: 50px;
+        min-width: 140px;
+    }
+    
+    .upload-option {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+    
+    .chat-bubble {
+        max-width: 85%;
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+}
+
+.chat-window {
+    flex: 1;
+    overflow-y: auto;
+    padding: 30px;
+    background-color: transparent;
+    border: none;
+    margin-bottom: 20px;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.chat-message {
+    display: flex;
+    margin-bottom: 16px;
+    align-items: flex-start;
+    animation: slideIn 0.4s ease forwards;
+    padding: 4px 8px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.chat-message:hover {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.chat-message.assistant {
+    justify-content: flex-start;
+}
+
+.chat-message.user {
+    justify-content: flex-end;
+}
+
+.chat-bubble {
+    padding: 14px 18px;
+    border-radius: 18px;
+    max-width: 70%;
+    position: relative;
+    word-wrap: break-word;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    transition: all 0.3s ease;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.chat-message:hover .chat-bubble {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.chat-message.assistant .chat-bubble {
+    background: #2a2a2a;
+    color: #e2e8f0;
+    border-bottom-left-radius: 6px;
+    border: 1px solid #404040;
+}
+
+.chat-message.user .chat-bubble {
+    background: #333333;
+    color: #ffffff;
+    border-bottom-right-radius: 6px;
+    border: 1px solid #555555;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.chat-message.user:hover .chat-bubble {
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+}
+
+/* Simple tooltip on hover */
+.chat-message::after {
+    content: attr(data-time);
+    position: absolute;
+    bottom: -25px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.chat-message:hover::after {
+    opacity: 1;
+    visibility: visible;
+    bottom: -30px;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------------------------
+   Enhanced Chat Input Area
+---------------------------- */
+.chat-input-container {
+    position: relative;
+    margin-top: 5px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.chat-input-area {
+    position: sticky;
+    bottom: 0px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 700px;
+    background: #2a2a2a;
+    border: 2px solid #404040;
+    border-radius: 50px;
+    padding: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.chat-input-area:focus-within {
+    border-color: #666666;
+    box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1), 0 4px 16px rgba(255, 255, 255, 0.05);
+    transform: translateY(-2px);
+}
+
+/* Upload Toggle Button */
+.upload-toggle-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    font-size: 18px;
+    font-weight: bold;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.upload-toggle-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.upload-toggle-btn.active {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+}
+
+.upload-toggle-btn i {
+    font-size: 18px;
+    line-height: 1;
+    transition: all 0.3s ease;
+}
+
+.upload-toggle-btn:hover i {
+    transform: rotate(90deg);
+}
+
+.upload-toggle-btn.active i {
+    transform: rotate(0deg);
+}
+
+/* Chat Input Field */
+.chat-input {
+    flex: 1;
+    padding: 14px 24px;
+    border: none;
+    border-radius: 25px;
+    outline: none;
+    font-size: 18px;
+    background: transparent;
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+}
+
+.chat-input::placeholder {
+    color: #888888;
+    font-weight: 400;
+}
+
+/* Microphone Button */
+.mic-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    font-size: 16px;
+    box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
+}
+
+.mic-button:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
+}
+
+.mic-button.recording {
+    background: linear-gradient(135deg, #ff4757 0%, #ff3742 100%);
+    animation: pulse 1.5s infinite;
+    box-shadow: 0 4px 12px rgba(255, 71, 87, 0.4);
+}
+
+.mic-button i {
+    font-size: 16px;
+    line-height: 1;
+    transition: all 0.3s ease;
+}
+
+.mic-button.recording i {
+    transform: scale(1.1);
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* Enhanced Send Button */
+.send-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 25px;
+    border: none;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    min-width: 100px;
+    justify-content: center;
+}
+
+.send-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+.send-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+}
+
+.send-icon {
+    font-size: 16px;
+    transition: transform 0.3s ease;
+}
+
+.send-button:hover:not(:disabled) .send-icon {
+    transform: translateX(2px);
+}
+
+.send-text {
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0.5px;
+}
+
+/* Upload Popup */
+.upload-popup {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    background: #2a2a2a;
+    border: 1px solid #404040;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 8px 16px rgba(0, 0, 0, 0.2);
+    padding: 8px;
+    min-width: 160px;
+    z-index: 1000;
+    animation: popupSlideUp 0.3s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+@keyframes popupSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.upload-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 500;
+    color: #e2e8f0;
+}
+
+.upload-option:hover {
+    background: #3a3a3a;
+    transform: translateX(4px);
+}
+
+.upload-icon {
+    font-size: 18px;
+}
+
+/* ----------------------------
+   Task Modal
+---------------------------- */
+.task-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease forwards;
+    z-index: 1000;
+}
+
+.task-modal-content {
+    background-color: #fff;
+    border-radius: 12px;
+    padding: 25px 30px;
+    width: 400px;
+    max-width: 90%;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    animation: scaleIn 0.3s ease forwards;
+}
+
+@keyframes scaleIn {
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.task-modal-content h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.form-group input:focus {
+    border-color: #5c7cfa;
+    box-shadow: 0 0 8px rgba(92,124,250,0.2);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.cancel-btn {
+    background-color: #eee;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.cancel-btn:hover {
+    background-color: #ddd;
+}
+
+.save-btn {
+    background-color: #5c7cfa;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.save-btn:hover {
+    background-color: #4a63d3;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: rgba(92,124,250,0.5);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(92,124,250,0.8);
+}
