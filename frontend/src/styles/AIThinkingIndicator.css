@@ -1,0 +1,378 @@
+/* AI Thinking Indicator Styles */
+
+.ai-thinking-indicator {
+  position: relative;
+  margin: var(--space-1) 0;
+}
+
+.thinking-container {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+/* Progress bar */
+.thinking-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-bg-subtle);
+  overflow: hidden;
+}
+
+.thinking-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, 
+    var(--color-accent) 0%, 
+    var(--color-primary) 50%, 
+    var(--color-accent) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Step content */
+.thinking-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 18px;
+}
+
+.thinking-step-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.thinking-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(var(--color-accent-rgb, 59, 130, 246), 0.1);
+  color: var(--color-accent);
+  transition: all 0.2s ease;
+}
+
+.thinking-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.thinking-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-success);
+  color: white;
+  margin-left: var(--space-1);
+}
+
+/* Animated dots */
+.thinking-dots {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  margin-left: var(--space-1);
+}
+
+.thinking-dots span {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  background: var(--color-text-subtle);
+  border-radius: 50%;
+  animation: thinking-dot 1.4s ease-in-out infinite;
+}
+
+/* Detailed view */
+.thinking-details {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.thinking-detail-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  transition: all 0.2s ease;
+}
+
+.thinking-detail-step.completed {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  opacity: 0.7;
+}
+
+.thinking-detail-step.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.thinking-detail-step.pending {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+/* Glow effect */
+.thinking-glow {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, 
+    transparent, 
+    var(--color-accent-soft), 
+    transparent, 
+    var(--color-primary-soft), 
+    transparent);
+  border-radius: var(--radius-lg);
+  z-index: -1;
+  opacity: 0.3;
+  filter: blur(8px);
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .thinking-container {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  
+  .thinking-glow {
+    opacity: 0.5;
+  }
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .thinking-container {
+    padding: var(--space-3);
+  }
+  
+  .thinking-text {
+    font-size: var(--font-size-xs);
+  }
+  
+  .thinking-icon {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .thinking-details {
+    display: none; /* Hide details on mobile */
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .thinking-progress-fill {
+    animation: none;
+  }
+  
+  .thinking-glow {
+    animation: none;
+    opacity: 0.2;
+  }
+  
+  .thinking-dots span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .thinking-container {
+    border: 2px solid var(--color-text);
+  }
+  
+  .thinking-progress-fill {
+    background: var(--color-text);
+  }
+  
+  .thinking-icon {
+    background: var(--color-text);
+    color: var(--color-bg);
+  }
+}
+
+/* Sparkle animation for generation step */
+.thinking-icon.sparkle {
+  position: relative;
+  overflow: visible;
+}
+
+.thinking-icon.sparkle::before,
+.thinking-icon.sparkle::after {
+  content: '✨';
+  position: absolute;
+  font-size: 8px;
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+.thinking-icon.sparkle::before {
+  top: -8px;
+  right: -8px;
+  animation-delay: 0s;
+}
+
+.thinking-icon.sparkle::after {
+  bottom: -8px;
+  left: -8px;
+  animation-delay: 0.7s;
+}
+
+@keyframes sparkle {
+  0%, 100% { 
+    opacity: 0; 
+    transform: scale(0.5) rotate(0deg); 
+  }
+  50% { 
+    opacity: 1; 
+    transform: scale(1) rotate(180deg); 
+  }
+}
+
+/* Pulse effect for active steps */
+.thinking-step.active .thinking-icon {
+  animation: iconPulse 2s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+  0%, 100% { 
+    transform: scale(1); 
+    opacity: 1; 
+  }
+  50% { 
+    transform: scale(1.1); 
+    opacity: 0.8; 
+  }
+}
+
+/* Enhanced progress bar */
+.thinking-progress-fill {
+  position: relative;
+  overflow: hidden;
+}
+
+.thinking-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.4) 50%, 
+    transparent 100%);
+  animation: progressGloss 2s ease-in-out infinite;
+}
+
+@keyframes progressGloss {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Fast Mode Optimizations */
+.fast-mode {
+  animation-duration: 0.4s !important;
+}
+
+.fast-mode .step-progress-bar {
+  animation-duration: 1.6s !important; /* 0.4x of original 4s */
+}
+
+.fast-mode .step-icon {
+  animation-duration: 0.8s !important; /* 0.4x of original 2s */
+}
+
+.fast-mode .sparkle {
+  animation-duration: 0.8s !important; /* 0.4x of original 2s */
+}
+
+.fast-mode .thinking-indicator {
+  transition: all 0.12s ease-in-out !important; /* 0.4x of original 0.3s */
+}
+
+.fast-mode .thinking-progress-fill::after {
+  animation-duration: 0.8s !important; /* 0.4x of original 2s */
+}
+
+.fast-mode .thinking-step.active .thinking-icon {
+  animation-duration: 0.8s !important; /* 0.4x of original 2s */
+}
+
+/* Enhanced State Transitions */
+.thinking-indicator {
+  transition: all 0.3s ease-in-out;
+  transform-origin: center;
+}
+
+.thinking-indicator.completing {
+  transform: scale(0.98);
+  opacity: 0.95;
+}
+
+/* Mobile Performance Enhancements */
+@media (max-width: 768px) {
+  .fast-mode .thinking-indicator {
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+  }
+  
+  .fast-mode .step-icon {
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+  
+  .thinking-container {
+    padding: var(--space-1) var(--space-2);
+  }
+  
+  .thinking-text {
+    font-size: 11px;
+  }
+  
+  .thinking-icon {
+    width: 14px;
+    height: 14px;
+  }
+  
+  .thinking-check {
+    width: 12px;
+    height: 12px;
+  }
+  
+  .step-progress-bar {
+    height: 1px;
+  }
+}

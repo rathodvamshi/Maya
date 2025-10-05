@@ -1,0 +1,45 @@
+# Emotion -> style -> ordered emoji choices (first is conservative default)
+joy:
+  conservative: ["🙂","😄"]
+  casual: ["😄","😊","🙂"]
+  playful: ["😄","🤩","🎉"]
+love:
+  conservative: ["❤️"]
+  casual: ["❤️","😊"]
+  playful: ["❤️","💖","😍"]
+gratitude:
+  conservative: ["🙏"]
+  casual: ["🙏","😊"]
+  playful: ["🙏","😊","🤗"]
+surprise:
+  conservative: ["😮"]
+  casual: ["😮","😲"]
+  playful: ["😮","😲","🤯"]
+sadness:
+  conservative: ["🤍"]
+  casual: ["🤍","🙏"]
+  playful: ["🤍","🙏","💬"]
+confusion:
+  conservative: ["🤔"]
+  casual: ["🤔","❓"]
+  playful: ["🤔","❓","🧠"]
+anger:
+  conservative: ["🙏"]
+  casual: ["🙏","🤝"]
+  playful: ["🙏","🤝","💬"]
+fear:
+  conservative: ["🤗"]
+  casual: ["🤗","🙂"]
+  playful: ["🤗","🙂","💬"]
+disgust:
+  conservative: ["😐"]
+  casual: ["😐","💬"]
+  playful: ["😐","💬","🤢"]
+neutral:
+  conservative: ["🙂"]
+  casual: ["🙂","ℹ️"]
+  playful: ["🙂","ℹ️","🤖"]
+toxic:
+  conservative: []
+  casual: []
+  playful: []

@@ -178,8 +178,8 @@ async def start_new_chat(
 
     # Fallback to model if none of the deterministic fast-paths applied
     if ai_response_text is None:
-        ai_response_text = await run_in_threadpool(
-            ai_service.get_response,
+        # get_response is async; call directly (previously incorrectly wrapped)
+        ai_response_text = await ai_service.get_response(
             prompt=request.message,
             history=context.get("history"),
             state=context.get("state", "general_conversation"),
@@ -187,6 +187,7 @@ async def start_new_chat(
             neo4j_facts=context.get("neo4j_facts"),
             profile=profile,
             user_facts_semantic=context.get("user_facts_semantic"),
+            persistent_memories=context.get("persistent_memories"),
         )
 
     # Save session in MongoDB
@@ -215,6 +216,16 @@ async def start_new_chat(
         ai_message=ai_response_text,
         state="general_conversation",
     )
+
+    # Touch access time for any persistent memories used
+    try:
+        from app.services import memory_service as _memsvc
+        mem_ids = [m.get("id") for m in (context.get("persistent_memories") or []) if m.get("id")]
+        if mem_ids:
+            import asyncio as _asyncio
+            _asyncio.create_task(_memsvc.touch_memory_access(user_id, mem_ids))
+    except Exception:
+        pass
 
     return {"session_id": session_id, "response_text": ai_response_text}
 
@@ -252,8 +263,7 @@ async def start_new_chat_stream(
     )
 
     # Generate AI response in background thread
-    ai_response_text = await run_in_threadpool(
-        ai_service.get_response,
+    ai_response_text = await ai_service.get_response(
         prompt=request.message,
         history=context.get("history"),
         state=context.get("state", "general_conversation"),
@@ -261,6 +271,7 @@ async def start_new_chat_stream(
         neo4j_facts=context.get("neo4j_facts"),
         profile=context.get("profile"),
         user_facts_semantic=context.get("user_facts_semantic"),
+        persistent_memories=context.get("persistent_memories"),
     )
 
     # Save session in MongoDB
@@ -288,6 +299,14 @@ async def start_new_chat_stream(
         ai_message=ai_response_text,
         state="general_conversation",
     )
+    try:
+        from app.services import memory_service as _memsvc
+        mem_ids = [m.get("id") for m in (context.get("persistent_memories") or []) if m.get("id")]
+        if mem_ids:
+            import asyncio as _asyncio
+            _asyncio.create_task(_memsvc.touch_memory_access(user_id, mem_ids))
+    except Exception:
+        pass
 
     async def token_stream():
         # Simple word-chunk streaming; adjust chunking as needed
@@ -426,8 +445,7 @@ async def continue_chat(
 
     if fast_answer is None:
         # Fall back to full model call
-        ai_response_text = await run_in_threadpool(
-            ai_service.get_response,
+        ai_response_text = await ai_service.get_response(
             prompt=request.message,
             history=recent_history,
             state=current_state,
@@ -435,6 +453,7 @@ async def continue_chat(
             neo4j_facts=context.get("neo4j_facts"),
             profile=profile,
             user_facts_semantic=context.get("user_facts_semantic"),
+            persistent_memories=context.get("persistent_memories"),
         )
     else:
         ai_response_text = fast_answer
@@ -475,6 +494,15 @@ async def continue_chat(
         ai_message=ai_response_text,
         state=next_state,
     )
+
+    try:
+        from app.services import memory_service as _memsvc
+        mem_ids = [m.get("id") for m in (context.get("persistent_memories") or []) if m.get("id")]
+        if mem_ids:
+            import asyncio as _asyncio
+            _asyncio.create_task(_memsvc.touch_memory_access(user_id, mem_ids))
+    except Exception:
+        pass
 
     return {"response_text": ai_response_text}
 

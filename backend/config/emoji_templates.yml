@@ -1,0 +1,16 @@
+# Message templates for potential future use (not yet wired to runtime)
+joy:
+  - "Great news!"
+  - "That's wonderful to hear."
+sadness:
+  - "I'm here for you if you want to share more."
+  - "That sounds really tough."
+anger:
+  - "I understand why that would be frustrating."
+  - "Let's work through this together."
+confusion:
+  - "Let me clarify that for you."
+  - "Can you tell me a bit more so I can help better?"
+neutral:
+  - "Here are the details you asked for."
+  - "Let me know if you need anything else."

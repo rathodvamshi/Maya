@@ -3,27 +3,56 @@
 import axios from 'axios';
 import authService from './auth';
 
-// Create a new Axios instance for authenticated API calls
+// Centralized Axios instance
+// Convention: REACT_APP_API_URL should be the root server origin WITHOUT trailing slash or /api.
+// We append '/api' here exactly once. This prevents accidental double '/api/api' when services also prefix.
+// Backwards compatibility: if user already included '/api' we avoid duplicating it.
+const RAW_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
+
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8000', // Your backend base URL
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: false,
 });
 
-// Use an interceptor to automatically add the auth token to every request
+if (process.env.NODE_ENV === 'development') {
+  // eslint-disable-next-line no-console
+  console.log('[api] baseURL =', API_BASE);
+}
+
+// Inject Bearer token automatically
 apiClient.interceptors.request.use(
   (config) => {
     const user = authService.getCurrentUser();
-    if (user && user.access_token) {
-      // The backend expects the token in the 'Authorization' header
-      config.headers['Authorization'] = 'Bearer ' + user.access_token;
+    if (user?.access_token) {
+      config.headers.Authorization = `Bearer ${user.access_token}`;
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 export default apiClient;
+
+// Global 401 handler to improve DX when tokens expire or are missing
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    if (status === 401) {
+      try {
+        // If unauthorized, clear stale tokens so user can re-auth
+        authService.logout?.();
+        // Optionally, emit a global event for the app to show login
+        if (typeof window !== 'undefined') {
+          const evt = new CustomEvent('maya:auth:unauthorized');
+          window.dispatchEvent(evt);
+        }
+      } catch {}
+    }
+    return Promise.reject(error);
+  }
+);

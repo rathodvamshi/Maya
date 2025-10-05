@@ -98,7 +98,11 @@ async def get_current_active_user(
     user = users_collection.find_one({"email": token_data.username})
     if user is None:
         raise credentials_exception
-
-    # Convert ObjectId to string for easier use
-    user["_id"] = str(user["_id"])
+    # Normalize id fields so downstream code that still expects user_id / userId works.
+    # Many routers were written assuming current_user contains multiple aliases.
+    user_id_str = str(user["_id"])  # original ObjectId -> string
+    user["_id"] = user_id_str
+    # Provide common aliases (backwards compatibility & mixed router usage)
+    user.setdefault("user_id", user_id_str)
+    user.setdefault("userId", user_id_str)
     return user

@@ -1,7 +1,18 @@
-"""Neo4j services: async (for FastAPI) and sync (for Celery worker)."""
+"""Neo4j services: async (for FastAPI) and sync (for Celery worker).
+
+Enhancements:
+ - Added configurable retry & backoff for initial connectivity to smooth over
+    container cold starts (especially with Docker compose where app races DB).
+    Configure with env vars:
+        NEO4J_CONNECT_RETRIES (default 5)
+        NEO4J_CONNECT_DELAY_SECS (initial delay, default 0.6)
+    Exponential backoff (delay * 1.6 ** attempt) with cap 5s per attempt.
+"""
 
 import uuid
 import logging
+import os
+import time
 from typing import Optional, Dict, Any, List
 
 from neo4j import AsyncGraphDatabase, AsyncDriver, GraphDatabase, Driver
@@ -14,18 +25,57 @@ logger = logging.getLogger(__name__)
 class Neo4jService:
     _driver: Optional[AsyncDriver] = None
 
-    async def connect(self):
+    async def connect(self, retries: Optional[int] = None):
+        """Attempt to establish async driver with retry/backoff.
+
+        Called on FastAPI startup; non-blocking within a short bounded window.
+        """
         if self._driver:
             return
-        try:
-            self._driver = AsyncGraphDatabase.driver(
-                settings.NEO4J_URI,
-                auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
-            )
-            await self._driver.verify_connectivity()
-        except Exception as e:
-            logger.error(f"❌ Neo4j async connect failed: {e}")
-            self._driver = None
+        # Resolve retry settings
+        if retries is None:
+            try:
+                retries = int(os.getenv("NEO4J_CONNECT_RETRIES", "5"))
+            except ValueError:
+                retries = 5
+        base_delay = float(os.getenv("NEO4J_CONNECT_DELAY_SECS", "0.6"))
+
+        last_err: Optional[Exception] = None
+        for attempt in range(retries):
+            try:
+                self._driver = AsyncGraphDatabase.driver(
+                    settings.NEO4J_URI,
+                    auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+                )
+                await self._driver.verify_connectivity()
+                if attempt > 0:
+                    logger.info(f"Neo4j async connected after retry attempt={attempt}")
+                return
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                # Ensure driver closed before retry
+                if self._driver:
+                    try:
+                        await self._driver.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._driver = None
+                # Compute backoff delay (skip sleep after final attempt)
+                if attempt < retries - 1:
+                    delay = min(base_delay * (1.6 ** attempt), 5.0)
+                    logger.warning(
+                        f"Neo4j async connect retry attempt={attempt+1}/{retries} in {delay:.2f}s: {e}"
+                    )
+                    try:
+                        import asyncio
+                        await asyncio.sleep(delay)
+                    except Exception:  # noqa: BLE001
+                        break
+        # Exhausted retries
+        if last_err:
+            logger.error(f"❌ Neo4j async connect failed after {retries} attempts: {last_err}")
+        else:
+            logger.error("❌ Neo4j async connect failed: unknown error")
 
     async def close(self):
         if self._driver:
@@ -157,18 +207,44 @@ class Neo4jService:
 class Neo4jSyncService:
     _driver: Optional[Driver] = None
 
-    def connect(self):
+    def connect(self, retries: Optional[int] = None):
         if self._driver:
             return
-        try:
-            self._driver = GraphDatabase.driver(
-                settings.NEO4J_URI,
-                auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
-            )
-            self._driver.verify_connectivity()
-        except Exception as e:
-            logger.error(f"❌ Neo4j sync connect failed: {e}")
-            self._driver = None
+        if retries is None:
+            try:
+                retries = int(os.getenv("NEO4J_CONNECT_RETRIES", "5"))
+            except ValueError:
+                retries = 5
+        base_delay = float(os.getenv("NEO4J_CONNECT_DELAY_SECS", "0.6"))
+        last_err: Optional[Exception] = None
+        for attempt in range(retries):
+            try:
+                self._driver = GraphDatabase.driver(
+                    settings.NEO4J_URI,
+                    auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+                )
+                self._driver.verify_connectivity()
+                if attempt > 0:
+                    logger.info(f"Neo4j sync connected after retry attempt={attempt}")
+                return
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                if self._driver:
+                    try:
+                        self._driver.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._driver = None
+                if attempt < retries - 1:
+                    delay = min(base_delay * (1.6 ** attempt), 5.0)
+                    logger.warning(
+                        f"Neo4j sync connect retry attempt={attempt+1}/{retries} in {delay:.2f}s: {e}"
+                    )
+                    time.sleep(delay)
+        if last_err:
+            logger.error(f"❌ Neo4j sync connect failed after {retries} attempts: {last_err}")
+        else:
+            logger.error("❌ Neo4j sync connect failed: unknown error")
 
     def close(self):
         if self._driver:

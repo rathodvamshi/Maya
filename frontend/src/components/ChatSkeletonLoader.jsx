@@ -1,7 +1,7 @@
 // frontend/src/components/ChatSkeletonLoader.jsx
 
 import React from 'react';
-import '../styles/ChatWindow.css'; // We can reuse styles
+import '../styles/ChatWindowNew.css'; // Use the correct CSS file
 import '../styles/SkeletonLoader.css'; // We will create this new CSS file
 
 const ChatSkeletonLoader = () => (

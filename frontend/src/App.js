@@ -5,11 +5,15 @@ import Login from './components/Login';
 import RegisterNew from './components/RegisterNew';
 import AuthModal from './components/AuthModal';
 import LandingPage from './components/LandingPage';
-import Dashboard from './components/Dashboard';
+// Removed old Dashboard; modern dashboard is the default now.
+import ModernDashboard from './components/ModernDashboard';
 import LoadingSpinner from './components/LoadingSpinner';
+// Removed temporary SidebarTest component.
 import authService from './services/auth';
 import './styles/variables.css';
 import './styles/App.css';
+import { SelectionProvider } from './contexts/SelectionContext';
+// InlineAgent removed
 
 /* 
 // Old Home component - replaced with LandingPage
@@ -429,6 +433,22 @@ function App() {
         return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
+    // Initialize theme system
+    useEffect(() => {
+        const initializeTheme = () => {
+            const savedTheme = localStorage.getItem('maya-theme') || 'system';
+            
+            if (savedTheme === 'system') {
+                const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', systemTheme);
+            } else {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+        };
+
+        initializeTheme();
+    }, []);
+
     const handleLogout = useCallback(() => {
         authService.logout();
         setCurrentUser(null);
@@ -453,61 +473,66 @@ function App() {
     }
 
     return (
-        <Router>
-            <div className="app-container">
-                <main className="app-content">
-                    <Suspense fallback={<LoadingSpinner />}>
-                        <AnimatePresence mode="wait">
-                            <Routes>
-                                <Route 
-                                    path="/" 
-                                    element={
-                                        <AnimatedRoute>
-                                            <LandingPage />
-                                        </AnimatedRoute>
-                                    } 
-                                />
-                                <Route 
-                                    path="/login" 
-                                    element={
-                                        <AnimatedRoute>
-                                            <Login onAuthSuccess={handleAuthSuccess} />
-                                        </AnimatedRoute>
-                                    } 
-                                />
-                                <Route 
-                                    path="/register" 
-                                    element={
-                                        <AnimatedRoute>
-                                            <RegisterNew onAuthSuccess={handleAuthSuccess} />
-                                        </AnimatedRoute>
-                                    } 
-                                />
-                                <Route 
-                                    path="/dashboard" 
-                                    element={
-                                        <PrivateRoute>
+        <SelectionProvider>
+            <Router>
+                <div className="app-container">
+                    <main className="app-content">
+                        <Suspense fallback={<LoadingSpinner />}>
+                            <AnimatePresence mode="wait">
+                                <Routes>
+                                    <Route 
+                                        path="/" 
+                                        element={
                                             <AnimatedRoute>
-                                                <Dashboard />
+                                                <LandingPage />
                                             </AnimatedRoute>
-                                        </PrivateRoute>
-                                    } 
-                                />
-                                <Route path="*" element={<Navigate to="/" replace />} />
-                            </Routes>
-                        </AnimatePresence>
-                    </Suspense>
-                </main>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/login" 
+                                        element={
+                                            <AnimatedRoute>
+                                                <Login onAuthSuccess={handleAuthSuccess} />
+                                            </AnimatedRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/register" 
+                                        element={
+                                            <AnimatedRoute>
+                                                <RegisterNew onAuthSuccess={handleAuthSuccess} />
+                                            </AnimatedRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/dashboard" 
+                                        element={
+                                            <PrivateRoute>
+                                                <AnimatedRoute>
+                                                    <ModernDashboard />
+                                                </AnimatedRoute>
+                                            </PrivateRoute>
+                                        } 
+                                    />
+                                    {/** Legacy dashboard route removed **/}
+                                    {/** Sidebar test route removed **/}
+                                    <Route path="*" element={<Navigate to="/" replace />} />
+                                </Routes>
+                            </AnimatePresence>
+                        </Suspense>
+                        {/* InlineAgent removed */}
+                    </main>
 
-                {/* Auth Modal */}
-                <AuthModal
-                    isOpen={authModal.isOpen}
-                    onClose={closeAuthModal}
-                    onAuthSuccess={handleAuthSuccess}
-                    initialMode={authModal.mode}
-                />
-            </div>
-        </Router>
+                    {/* Auth Modal */}
+                    <AuthModal
+                        isOpen={authModal.isOpen}
+                        onClose={closeAuthModal}
+                        onAuthSuccess={handleAuthSuccess}
+                        initialMode={authModal.mode}
+                    />
+                </div>
+            </Router>
+        </SelectionProvider>
     );
 }
 

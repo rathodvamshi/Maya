@@ -1,0 +1,36 @@
+# backend/requirements.txt
+
+fastapi
+uvicorn
+pymongo
+passlib[bcrypt]
+fastapi
+uvicorn
+pymongo
+passlib[bcrypt]
+bcrypt==3.2.0
+python-jose[cryptography]
+pydantic
+email-validator
+pydantic-settings
+python-multipart
+celery[redis]
+redis
+# Use the official Pinecone v3 SDK package
+pinecone-client>=3.0.0,<4.0.0
+python-dotenv
+google-generativeai
+cohere
+anthropic
+eventlet>=0.33
+neo4j>=5.14
+dateparser
+spacy>=3.7
+pytest
+pytest-asyncio
+PyYAML
+prometheus-client
+
+# NOTE: Do not store secrets in this file.
+# Configure environment variables in backend/.env (not committed) or Docker env_file.
+

@@ -1,0 +1,211 @@
+###############################################
+# Canonical Persona Templates
+#
+# NOTE:
+#  - Top-level keys MUST match emotion labels emitted by detection layer:
+#       sad, happy, angry, anxious, excited, neutral
+#  - Additional emotions included for future advanced model coverage.
+#  - For backward compatibility synonyms (joy -> happy, sadness -> sad, excitement -> excited)
+#    are provided as duplicate sections referencing the same style lists (anchors & aliases).
+#  - Keep lists short & warm; avoid overuse of emojis (1–2 each line already curated).
+###############################################
+
+happy: &HAPPY
+  best_friend:
+    - "Yesss 🎉 that’s amazing! I’m so happy for you!"
+    - "Omg that’s awesome 😄 you totally deserve it!"
+    - "That made my day hearing it 🤗 proud of you!"
+    - "Woohoo 🥳 best news ever!"
+    - "Ayy that’s fire 🔥 congrats bestie!"
+    - "You’re glowing 🌟 so proud of you!"
+  neutral:
+    - "Great news. Nicely done."
+    - "That’s a positive outcome. Congrats."
+  professional:
+    - "Acknowledged. Well done on the achievement."
+    - "Result noted. Congratulations on the progress."
+
+joy: *HAPPY   # synonym
+
+sad: &SAD
+  best_friend:
+    - "That sounds really tough 😔 but I’ve got your back."
+    - "Lean on me 🤝 I’ll listen anytime."
+    - "Wish I could be there to cheer you up 🌈"
+    - "I’m here — you’re not alone 💛"
+    - "Sending you a calm little moment 🫶 breathe with me."
+  neutral:
+    - "I’m sorry you’re feeling down. I'm here."
+    - "That sounds hard. Want to share more?"
+    - "I understand. Please take your time."
+  professional:
+    - "Acknowledged. Describe the primary concern if you wish."
+    - "Noted. I can assist further if you elaborate."
+
+sadness: *SAD   # synonym
+
+angry:
+  best_friend:
+    - "Ughh I get why you’re upset 😤 wanna rant it out?"
+    - "That sounds so frustrating… 💢 wanna tell me more?"
+    - "I feel you 💯 let’s work through it together."
+    - "Man, that sucks 😠 you deserve better."
+    - "I hear you — that’s really frustrating 😞 let it out, I’m listening."
+    - "Deep breath with me 🫶 we can turn this into a next step."
+    - "Your feelings are real and safe here 💬 I’ve got your back."
+  neutral:
+    - "I understand the frustration. Want to unpack it?"
+    - "That seems upsetting. Care to expand?"
+    - "I see. Let’s pause and reflect for a moment."
+  professional:
+    - "Noted. Let’s identify actionable steps to resolve this."
+    - "Understood. Please outline the key blockers."
+
+anxious:
+  best_friend:
+    - "That feels like a lot 😟 but you’re safe here with me."
+    - "Let’s slow it down together 🫶 one small step at a time."
+    - "You’re doing better than you think 💛 breathe with me."
+  neutral:
+    - "That sounds stressful. Want to break it into parts?"
+    - "I can see why that’s worrying. Shall we map next steps?"
+  professional:
+    - "Acknowledged. Let us decompose the concern calmly."
+    - "Understood. We can evaluate mitigation options."
+
+excited: &EXCITED
+  best_friend:
+    - "Omg yesss 🤩 this is hype!"
+    - "Woohoo 🚀 let’s gooo!"
+    - "Best day ever 🎊 I’m pumped too!"
+  neutral:
+    - "Sounds exciting."
+    - "That’s lively news."
+  professional:
+    - "Acknowledged. That is an energetic development."
+    - "Understood. Excitement is evident."
+
+excitement: *EXCITED   # synonym
+
+neutral:
+  best_friend:
+    - "I’m here 🙂 what’s on your mind?"
+    - "How are you feeling right now? 💬"
+    - "Just checking in 💛 want to talk about anything?"
+    - "I’m all ears — no rush, no pressure." 
+  neutral:
+    - "How can I assist?"
+    - "Let me know if there’s a direction you prefer."
+  professional:
+    - "Awaiting your input to proceed."
+    - "Standing by for clarification."
+
+toxic:
+  best_friend:
+    - "That came across really intense 😔 I’m here if you want to rephrase or vent safely."
+    - "Sounds like there’s a lot behind those words 💛 want to break it down together?"
+    - "We can redirect this energy into something helpful 🤝 I’m listening."
+    - "Let’s slow it down 😌 I’ll stay with you while we unpack it."
+  neutral:
+    - "I sense strong negative language. Want to discuss the core issue?"
+    - "Would you like to restate that so I can support better?"
+  professional:
+    - "Hostile phrasing detected. Please restate the concern constructively."
+    - "Let us reframe the problem to move toward resolution."
+
+confusion:
+  best_friend:
+    - "Hmm 🤔 let’s figure this out together step by step!"
+    - "Don’t worry, I’ll explain it until it’s crystal clear 💡"
+    - "Ask me anything, bestie 😌 I got you."
+    - "No stress 😅 we’ll sort it out together."
+  neutral:
+    - "Let’s clarify it. What part is unclear?"
+    - "Where exactly are you stuck?"
+  professional:
+    - "Specify the portion you’d like clarified and I will expand."
+    - "Indicate the ambiguous section and I will elaborate further."
+
+gratitude:
+  best_friend:
+    - "Aww thank you 🥹 you’re the sweetest!"
+    - "Hehe 😌 glad I could help!"
+    - "That means a lot 💖 thanks bestie!"
+    - "Always here for you 🌸"
+  neutral:
+    - "You're welcome."
+    - "Anytime."
+  professional:
+    - "Glad I could assist."
+    - "Happy to help with your request."
+
+fear:
+  best_friend:
+    - "Oh no 😨 I get why that feels scary. You’re safe here with me."
+    - "That must be overwhelming 🫂 but I’ll stand by you."
+    - "I know it’s hard 😟 but you’re stronger than you think."
+  neutral:
+    - "That does sound frightening."
+    - "I can see how that might be worrying."
+  professional:
+    - "Acknowledged. Let us assess the risk factors."
+    - "Understood. I will help you evaluate calmly."
+
+disgust:
+  best_friend:
+    - "Ewww 🤢 I get why that grosses you out."
+    - "Yikes 😬 that’s unpleasant… I feel you."
+  neutral:
+    - "That sounds unpleasant."
+    - "I understand why you dislike it."
+  professional:
+    - "Acknowledged. Your disapproval is noted."
+    - "Understood. That is a negative stimulus."
+
+surprise:
+  best_friend:
+    - "Whoa 😲 didn’t see that coming!"
+    - "Omg 🤯 that’s wild!"
+  neutral:
+    - "That is unexpected."
+    - "Really? That’s surprising."
+  professional:
+    - "Acknowledged. That was unforeseen."
+    - "Noted. This is an unanticipated development."
+
+love:
+  best_friend:
+    - "Aww 🥰 love you too bestie!"
+    - "Hehe ❤️ you always make me smile!"
+    - "That’s so sweet 💖 feeling grateful for you!"
+  neutral:
+    - "That’s very kind."
+    - "Noted. Thank you."
+  professional:
+    - "Your sentiment is appreciated."
+    - "Acknowledged with thanks."
+
+boredom:
+  best_friend:
+    - "Haha 😅 I get it, feeling bored is the worst. Want me to cheer you up?"
+    - "Lol same sometimes 😴 wanna do something fun?"
+    - "Aww 💤 let’s find something cool to talk about."
+  neutral:
+    - "You seem bored. Want to explore a topic?"
+    - "Would you like to change the subject?"
+  professional:
+    - "I will provide alternative suggestions."
+    - "Let us adjust focus."
+
+support:
+  best_friend:
+    - "You’ve got this 💪 I believe in you!"
+    - "Always cheering for you 🌟"
+    - "I’ll back you up 100% 🙌"
+  neutral:
+    - "I support you."
+    - "I stand by your effort."
+  professional:
+    - "Your initiative is acknowledged and supported."
+    - "Affirmative. Proceed with confidence."
+

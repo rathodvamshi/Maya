@@ -1,20 +1,24 @@
 // Modern LeftSidebar Component
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
   MessageSquare, 
   Trash2, 
-  ChevronRight, 
+  ChevronDown,
+  ChevronUp,
   Sparkles, 
-  Clock, 
-  Star,
+  Sun,
+  Moon,
+  Monitor,
   Menu,
   X,
   History,
-  Bookmark,
-  Zap
+  User,
+  Settings,
+  LogOut,
+  MoreVertical
 } from 'lucide-react';
 import '../styles/LeftSidebarNew.css';
 
@@ -57,6 +61,27 @@ const contentVariants = {
   }
 };
 
+const dropdownVariants = {
+  hidden: {
+    opacity: 0,
+    height: 0,
+    y: -10,
+    transition: {
+      duration: 0.2,
+      ease: "easeIn"
+    }
+  },
+  visible: {
+    opacity: 1,
+    height: "auto",
+    y: 0,
+    transition: {
+      duration: 0.3,
+      ease: "easeOut"
+    }
+  }
+};
+
 const sessionVariants = {
   hidden: {
     opacity: 0,
@@ -83,19 +108,242 @@ const sessionVariants = {
   }
 };
 
-const buttonHoverVariants = {
-  hover: {
-    scale: 1.02,
-    y: -1,
-    transition: {
-      duration: 0.2,
-      ease: "easeOut"
+// Theme Hook
+const useTheme = () => {
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem('maya-theme');
+    return savedTheme || 'system';
+  });
+
+  useEffect(() => {
+    const applyTheme = (newTheme) => {
+      const root = document.documentElement;
+      
+      if (newTheme === 'system') {
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        root.setAttribute('data-theme', systemTheme);
+      } else {
+        root.setAttribute('data-theme', newTheme);
+      }
+    };
+
+    applyTheme(theme);
+    localStorage.setItem('maya-theme', theme);
+
+    if (theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleSystemThemeChange = (e) => {
+        applyTheme('system');
+      };
+
+      mediaQuery.addEventListener('change', handleSystemThemeChange);
+      return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
     }
-  },
-  tap: {
-    scale: 0.98,
-    y: 0
-  }
+  }, [theme]);
+
+  return { theme, setTheme };
+};
+
+// Theme Toggle Component
+const ThemeToggle = ({ theme, onThemeChange, isExpanded }) => {
+  const themes = [
+    { key: 'light', icon: Sun, label: 'Light' },
+    { key: 'dark', icon: Moon, label: 'Dark' },
+    { key: 'system', icon: Monitor, label: 'System' }
+  ];
+
+  return (
+    <div className="theme-toggle-container">
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div 
+            className="theme-label"
+            variants={contentVariants}
+            initial="collapsed"
+            animate="expanded"
+            exit="collapsed"
+          >
+            Theme
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      <div className="theme-buttons">
+        {themes.map(({ key, icon: Icon, label }) => (
+          <motion.button
+            key={key}
+            className={`theme-btn ${theme === key ? 'active' : ''}`}
+            onClick={() => onThemeChange(key)}
+            title={label}
+            whileHover={{ scale: 1.1, y: -1 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Icon size={16} />
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.span
+                  className="theme-btn-text"
+                  variants={contentVariants}
+                  initial="collapsed"
+                  animate="expanded"
+                  exit="collapsed"
+                >
+                  {label}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Profile Component
+const ProfileSection = ({ user, isExpanded, onLogout }) => {
+  const [showMenu, setShowMenu] = useState(false);
+
+  const menuItems = [
+    { icon: User, label: 'Profile', action: () => console.log('Profile clicked') },
+    { icon: Settings, label: 'Settings', action: () => console.log('Settings clicked') },
+    { icon: LogOut, label: 'Logout', action: onLogout, variant: 'danger' }
+  ];
+
+  return (
+    <div className="profile-section">
+      <motion.div 
+        className="profile-trigger"
+        onClick={() => setShowMenu(!showMenu)}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <div className="profile-avatar">
+          {user?.avatar ? (
+            <img src={user.avatar} alt={user.username} />
+          ) : (
+            <div className="avatar-placeholder">
+              <User size={20} />
+            </div>
+          )}
+        </div>
+        
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div 
+              className="profile-info"
+              variants={contentVariants}
+              initial="collapsed"
+              animate="expanded"
+              exit="collapsed"
+            >
+              <span className="profile-username">{user?.username || 'User'}</span>
+              <span className="profile-status">Online</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              className="profile-menu-trigger"
+              variants={contentVariants}
+              initial="collapsed"
+              animate="expanded"
+              exit="collapsed"
+            >
+              <MoreVertical size={16} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      <AnimatePresence>
+        {showMenu && (
+          <>
+            <motion.div
+              className="profile-menu-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMenu(false)}
+            />
+            <motion.div
+              className="profile-menu"
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+            >
+              {menuItems.map((item, index) => (
+                <motion.button
+                  key={index}
+                  className={`profile-menu-item ${item.variant || ''}`}
+                  onClick={() => {
+                    item.action();
+                    setShowMenu(false);
+                  }}
+                  whileHover={{ backgroundColor: 'var(--glass-bg-hover)' }}
+                >
+                  <item.icon size={16} />
+                  <span>{item.label}</span>
+                </motion.button>
+              ))}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// Logout Confirmation Modal
+const LogoutModal = ({ isOpen, onConfirm, onCancel }) => {
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="logout-modal-overlay"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onCancel}
+      >
+        <motion.div
+          className="logout-modal"
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="logout-modal-header">
+            <h3>Confirm Logout</h3>
+          </div>
+          <div className="logout-modal-body">
+            <p>Are you sure you want to logout? You'll need to sign in again to access your chats.</p>
+          </div>
+          <div className="logout-modal-actions">
+            <motion.button
+              className="logout-modal-btn cancel"
+              onClick={onCancel}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Cancel
+            </motion.button>
+            <motion.button
+              className="logout-modal-btn confirm"
+              onClick={onConfirm}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Logout
+            </motion.button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
 };
 
 const SessionItem = ({ session, activeSessionId, onSelectSession, onDeleteSession, isExpanded }) => {
@@ -119,7 +367,7 @@ const SessionItem = ({ session, activeSessionId, onSelectSession, onDeleteSessio
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => onSelectSession(session.id)}
-      whileHover={{ scale: 1.02, x: 8 }}
+      whileHover={{ scale: 1.02, x: 4 }}
       whileTap={{ scale: 0.98 }}
     >
       <div className="session-main">
@@ -132,16 +380,6 @@ const SessionItem = ({ session, activeSessionId, onSelectSession, onDeleteSessio
           transition={{ duration: 0.2 }}
         >
           <MessageSquare size={18} className="session-icon" />
-          {session.isStarred && (
-            <motion.div
-              className="star-badge"
-              initial={{ scale: 0, rotate: -180 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Star size={12} className="star-icon" />
-            </motion.div>
-          )}
         </motion.div>
 
         <AnimatePresence>
@@ -198,10 +436,14 @@ const LeftSidebar = ({
   onNewChat,
   onSelectSession,
   onDeleteSession,
-  isExpanded = false,
+  isExpanded = true,
   onToggleExpanded,
+  user = { username: 'Maya User', avatar: null }
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isRecentChatsExpanded, setIsRecentChatsExpanded] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   const handleToggle = () => {
     if (onToggleExpanded) {
@@ -219,6 +461,26 @@ const LeftSidebar = ({
     if (window.innerWidth <= 768) {
       setIsMobileMenuOpen(false);
     }
+  };
+
+  const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = () => {
+    // Add your logout logic here
+    console.log('User logged out');
+    setShowLogoutModal(false);
+    // Example: redirect to login page
+    // window.location.href = '/login';
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutModal(false);
+  };
+
+  const toggleRecentChats = () => {
+    setIsRecentChatsExpanded(!isRecentChatsExpanded);
   };
 
   const displaySessions = sessions.length > 0 ? sessions : [];
@@ -291,26 +553,60 @@ const LeftSidebar = ({
         <motion.button 
           className="sidebar-toggle" 
           onClick={handleToggle}
-          variants={buttonHoverVariants}
-          whileHover="hover"
-          whileTap="tap"
+          whileHover={{ scale: 1.02, y: -1 }}
+          whileTap={{ scale: 0.98 }}
         >
           <motion.div
             animate={{ rotate: isExpanded ? 180 : 0 }}
             transition={{ duration: 0.3 }}
           >
-            <ChevronRight size={16} />
+            <ChevronDown size={16} />
           </motion.div>
         </motion.button>
 
-        {/* Header */}
+        {/* Logo and Title Section */}
         <div className="sidebar-header">
+          <motion.div 
+            className="logo-section"
+            whileHover={{ scale: 1.02 }}
+          >
+            <motion.div 
+              className="logo-wrapper"
+              animate={{ 
+                rotate: [0, 5, -5, 0],
+                scale: [1, 1.05, 1]
+              }}
+              transition={{ 
+                duration: 6,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+            >
+              <Sparkles className="logo-icon" size={32} />
+            </motion.div>
+            
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div 
+                  className="logo-text"
+                  variants={contentVariants}
+                  initial="collapsed"
+                  animate="expanded"
+                  exit="collapsed"
+                >
+                  <h1 className="app-title">Maya</h1>
+                  <span className="app-subtitle">AI Assistant</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+
+          {/* New Chat Button */}
           <motion.button 
             className="new-chat-btn" 
             onClick={handleNewChat}
-            variants={buttonHoverVariants}
-            whileHover="hover"
-            whileTap="tap"
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.98 }}
           >
             <motion.div 
               className="btn-icon-wrapper"
@@ -318,20 +614,6 @@ const LeftSidebar = ({
               transition={{ duration: 0.3 }}
             >
               <Plus className="btn-icon" size={18} />
-              <motion.div
-                className="sparkle-wrapper"
-                animate={{ 
-                  rotate: [0, 180, 360],
-                  scale: [1, 1.2, 1]
-                }}
-                transition={{ 
-                  duration: 3,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              >
-                <Sparkles className="sparkle-icon" size={12} />
-              </motion.div>
             </motion.div>
             <AnimatePresence>
               {isExpanded && (
@@ -349,141 +631,143 @@ const LeftSidebar = ({
           </motion.button>
         </div>
 
-        {/* Navigation */}
-        <nav className="session-nav">
-          <AnimatePresence>
-            {isExpanded && (
-              <motion.div 
-                className="nav-header"
-                variants={contentVariants}
-                initial="collapsed"
-                animate="expanded"
-                exit="collapsed"
-              >
-                <History size={16} className="nav-icon" />
-                <span className="nav-title">Recent Chats</span>
-                <motion.div 
-                  className="nav-badge"
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: 0.3, type: "spring", bounce: 0.6 }}
+        {/* Recent Chats Section */}
+        <div className="recent-chats-section">
+          <motion.button
+            className="recent-chats-trigger"
+            onClick={toggleRecentChats}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <History size={16} className="recent-icon" />
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.span 
+                  className="recent-text"
+                  variants={contentVariants}
+                  initial="collapsed"
+                  animate="expanded"
+                  exit="collapsed"
                 >
-                  {displaySessions.length}
+                  Recent Chats
+                </motion.span>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div
+                  className="recent-chevron"
+                  animate={{ rotate: isRecentChatsExpanded ? 180 : 0 }}
+                  transition={{ duration: 0.3 }}
+                  variants={contentVariants}
+                  initial="collapsed"
+                  animate="expanded"
+                  exit="collapsed"
+                >
+                  <ChevronDown size={16} />
                 </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.button>
+
+          {/* Chat History Dropdown */}
+          <AnimatePresence>
+            {isRecentChatsExpanded && (
+              <motion.div
+                className="chat-history-dropdown"
+                variants={dropdownVariants}
+                initial="hidden"
+                animate="visible"
+                exit="hidden"
+              >
+                <motion.ul 
+                  className="session-list"
+                  initial="hidden"
+                  animate="visible"
+                  variants={{
+                    visible: {
+                      transition: {
+                        staggerChildren: 0.05,
+                        delayChildren: 0.1
+                      }
+                    }
+                  }}
+                >
+                  <AnimatePresence mode="popLayout">
+                    {displaySessions.length > 0 ? (
+                      displaySessions.map((session) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          activeSessionId={activeSessionId}
+                          onSelectSession={onSelectSession}
+                          onDeleteSession={onDeleteSession}
+                          isExpanded={isExpanded}
+                        />
+                      ))
+                    ) : (
+                      <motion.li 
+                        className="no-sessions"
+                        variants={sessionVariants}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                      >
+                        <motion.div
+                          className="empty-state"
+                          initial={{ scale: 0.9, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ delay: 0.2 }}
+                        >
+                          <MessageSquare size={24} className="empty-icon" />
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                className="empty-text"
+                                variants={contentVariants}
+                                initial="collapsed"
+                                animate="expanded"
+                                exit="collapsed"
+                              >
+                                <span className="empty-title">No conversations yet</span>
+                                <p className="empty-subtitle">Start a new chat to begin</p>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      </motion.li>
+                    )}
+                  </AnimatePresence>
+                </motion.ul>
               </motion.div>
             )}
           </AnimatePresence>
+        </div>
 
-          <motion.ul 
-            className="session-list"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: {
-                transition: {
-                  staggerChildren: 0.05,
-                  delayChildren: 0.1
-                }
-              }
-            }}
-          >
-            <AnimatePresence mode="popLayout">
-              {displaySessions.length > 0 ? (
-                displaySessions.map((session) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    activeSessionId={activeSessionId}
-                    onSelectSession={onSelectSession}
-                    onDeleteSession={onDeleteSession}
-                    isExpanded={isExpanded}
-                  />
-                ))
-              ) : (
-                <motion.li 
-                  className="no-sessions"
-                  variants={sessionVariants}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                >
-                  <motion.div
-                    className="empty-state"
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: 0.2 }}
-                  >
-                    <motion.div
-                      className="empty-icon-wrapper"
-                      animate={{ 
-                        y: [0, -5, 0],
-                        rotate: [0, 5, -5, 0]
-                      }}
-                      transition={{ 
-                        duration: 4,
-                        repeat: Infinity,
-                        ease: "easeInOut"
-                      }}
-                    >
-                      <MessageSquare size={32} className="empty-icon" />
-                      <Sparkles size={16} className="empty-sparkle" />
-                    </motion.div>
-                    <AnimatePresence>
-                      {isExpanded && (
-                        <motion.div
-                          className="empty-text"
-                          variants={contentVariants}
-                          initial="collapsed"
-                          animate="expanded"
-                          exit="collapsed"
-                        >
-                          <span className="empty-title">No conversations yet</span>
-                          <p className="empty-subtitle">Start a new chat to begin your Maya experience</p>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                </motion.li>
-              )}
-            </AnimatePresence>
-          </motion.ul>
-        </nav>
+        {/* Bottom Section */}
+        <div className="sidebar-bottom">
+          {/* Theme Toggle */}
+          <ThemeToggle 
+            theme={theme} 
+            onThemeChange={setTheme} 
+            isExpanded={isExpanded} 
+          />
 
-        {/* Footer */}
-        <AnimatePresence>
-          {isExpanded && (
-            <motion.div 
-              className="sidebar-footer"
-              variants={contentVariants}
-              initial="collapsed"
-              animate="expanded"
-              exit="collapsed"
-            >
-              <motion.div 
-                className="upgrade-prompt"
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <motion.div
-                  animate={{ 
-                    rotate: [0, 10, -10, 0],
-                    scale: [1, 1.1, 1]
-                  }}
-                  transition={{ 
-                    duration: 2,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                  }}
-                >
-                  <Zap size={16} />
-                </motion.div>
-                <span>Upgrade to Pro</span>
-                <Bookmark size={14} className="pro-badge" />
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          {/* Profile Section */}
+          <ProfileSection 
+            user={user} 
+            isExpanded={isExpanded} 
+            onLogout={handleLogout}
+          />
+        </div>
       </motion.aside>
+
+      {/* Logout Modal */}
+      <LogoutModal 
+        isOpen={showLogoutModal}
+        onConfirm={confirmLogout}
+        onCancel={cancelLogout}
+      />
     </>
   );
 };

@@ -18,7 +18,7 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with { session_id, response_text }.
    */
   startNewChat(firstMessage) {
-    return apiClient.post('/api/chat/new', { message: firstMessage });
+  return apiClient.post('/chat/new', { message: firstMessage });
   },
 
   /**
@@ -30,10 +30,10 @@ const chatService = {
   sendMessage(sessionId, message) {
     if (sessionId) {
       // Continue existing session
-      return apiClient.post(`/api/chat/${sessionId}`, { message });
+  return apiClient.post(`/chat/${sessionId}`, { message });
     }
-    // Default route for generic chat
-    return apiClient.post('/api/chat/', { message });
+    // No generic root chat route; start a new session instead
+    return apiClient.post('/chat/new', { message });
   },
 
   /**
@@ -41,7 +41,7 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with an array of messages.
    */
   getHistory() {
-    return apiClient.get('/api/chat/history');
+  return apiClient.get('/chat/history');
   },
 
   /**
@@ -49,7 +49,79 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with a status message.
    */
   clearHistory() {
-    return apiClient.delete('/api/chat/history/clear');
+  return apiClient.delete('/chat/history/clear');
+  },
+
+  /**
+   * Fetches all chat sessions for the current user.
+   * @returns {Promise<AxiosResponse>} Resolves with an array of chat sessions.
+   */
+  getSessions() {
+    return apiClient.get('/sessions/');
+  },
+
+  /**
+   * Deletes a specific chat session.
+   * @param {string} sessionId - The ID of the session to delete.
+   * @returns {Promise<AxiosResponse>} Resolves with deletion status.
+   */
+  deleteSession(sessionId) {
+    return apiClient.delete(`/sessions/${sessionId}`);
+  },
+
+  /**
+   * Updates the title of a specific chat session.
+   * @param {string} sessionId - The ID of the session to update.
+   * @param {string} title - The new title for the session.
+   * @returns {Promise<AxiosResponse>} Resolves with update status.
+   */
+  updateSessionTitle(sessionId, title) {
+    return apiClient.put(`/sessions/${sessionId}/title`, { title });
+  },
+
+  /**
+   * Pins or unpins a session.
+   * @param {string} sessionId
+   * @param {boolean} pinned - Desired pinned state
+   */
+  setSessionPinned(sessionId, pinned) {
+    return apiClient.put(`/sessions/${sessionId}/pin`, { pinned });
+  },
+
+  /**
+   * Marks a session as saved (or unsaved) so user can keep important chats.
+   * @param {string} sessionId
+   * @param {boolean} saved - Desired saved state
+   */
+  setSessionSaved(sessionId, saved) {
+    return apiClient.put(`/sessions/${sessionId}/save`, { saved });
+  },
+
+  /**
+   * Retrieves the complete message history for a specific session.
+   * @param {string} sessionId - The ID of the session to get history for.
+   * @param {number} limit - Maximum number of messages to retrieve (optional).
+   * @param {number} offset - Number of messages to skip for pagination (optional).
+   * @returns {Promise<AxiosResponse>} Resolves with session message history.
+   */
+  getSessionHistory(sessionId, limit = 30, offset = 0) {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+    if (offset) params.append('offset', offset.toString());
+    
+    const queryString = params.toString();
+    const url = `/sessions/${sessionId}/history${queryString ? `?${queryString}` : ''}`;
+    
+    return apiClient.get(url);
+  },
+
+  /**
+   * Generates an automatic title for a session based on its content.
+   * @param {string} sessionId - The ID of the session to generate title for.
+   * @returns {Promise<AxiosResponse>} Resolves with generated title.
+   */
+  generateSessionTitle(sessionId) {
+    return apiClient.post(`/sessions/${sessionId}/generate-title`);
   },
 
   // ----------------------------
@@ -61,7 +133,7 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with an array of tasks.
    */
   getTasks() {
-    return apiClient.get('/api/chat/tasks');
+  return apiClient.get('/chat/tasks');
   },
 
   /**
@@ -69,7 +141,7 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with an array of tasks.
    */
   getTaskHistory() {
-    return apiClient.get('/api/chat/tasks/history');
+  return apiClient.get('/chat/tasks/history');
   },
 
   /**
@@ -79,7 +151,7 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with created task ID.
    */
   createTask(content, dueDate) {
-    return apiClient.post('/api/chat/tasks', { content, due_date: dueDate });
+  return apiClient.post('/chat/tasks', { content, due_date: dueDate });
   },
 
   /**
@@ -89,7 +161,7 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with status of update.
    */
   updateTask(taskId, taskData) {
-    return apiClient.put(`/api/chat/tasks/${taskId}`, taskData);
+  return apiClient.put(`/chat/tasks/${taskId}`, taskData);
   },
 
   /**
@@ -98,7 +170,43 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with status of completion.
    */
   markTaskAsDone(taskId) {
-    return apiClient.put(`/api/chat/tasks/${taskId}/done`);
+  return apiClient.put(`/chat/tasks/${taskId}/done`);
+  },
+
+  // ----------------------------
+  // Feedback Management
+  // ----------------------------
+
+  /**
+   * Submits feedback for a specific message.
+   * @param {string} sessionId - The session ID where the message was sent.
+   * @param {Array} chatHistory - The chat history at the time of feedback.
+   * @param {Object} ratedMessage - The specific message being rated.
+   * @param {string} rating - Either 'good' or 'bad'.
+   * @returns {Promise<AxiosResponse>} Resolves with feedback submission status.
+   */
+  submitFeedback(sessionId, chatHistory, ratedMessage, rating) {
+    return apiClient.post('/feedback/', {
+      sessionId,
+      chatHistory,
+      ratedMessage,
+      rating
+    });
+  },
+
+  /**
+   * Submits a fact correction.
+   * @param {string} factId - The ID of the fact to correct.
+   * @param {string} correction - The corrected value.
+   * @param {string} userId - The user ID providing the correction.
+   * @returns {Promise<AxiosResponse>} Resolves with correction submission status.
+   */
+  submitFactCorrection(factId, correction, userId) {
+    return apiClient.post('/feedback/correction', {
+      fact_id: factId,
+      correction,
+      user_id: userId
+    });
   },
 };
 

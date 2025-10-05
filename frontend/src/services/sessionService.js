@@ -8,7 +8,7 @@ const sessionService = {
    * @returns {Promise<AxiosResponse<any>>} A promise that resolves to the API response.
    */
   getSessions: () => {
-    return apiClient.get('/api/sessions/');
+  return apiClient.get('/sessions/');
   },
 
   /**
@@ -17,7 +17,7 @@ const sessionService = {
    * @returns {Promise<AxiosResponse<any>>} A promise containing the session details.
    */
   getSessionMessages: (sessionId) => {
-    return apiClient.get(`/api/sessions/${sessionId}`);
+  return apiClient.get(`/sessions/${sessionId}`);
   },
 
   /**
@@ -26,7 +26,7 @@ const sessionService = {
    * @returns {Promise<AxiosResponse<any>>} A promise that resolves to the new session info.
    */
   createSession: (messages) => {
-    return apiClient.post('/api/sessions/', messages);
+  return apiClient.post('/sessions/', messages);
   },
 
   /**
@@ -35,7 +35,7 @@ const sessionService = {
    * @returns {Promise<AxiosResponse<any>>} A promise that resolves on successful deletion.
    */
   deleteSession: (sessionId) => {
-    return apiClient.delete(`/api/sessions/${sessionId}`);
+  return apiClient.delete(`/sessions/${sessionId}`);
   },
 };
 

@@ -55,7 +55,7 @@ def _fast_path(user_message: str) -> Dict[str, Any]:
     # Fallback general_chat fast path result
     return {"action": "general_chat", "confidence": confidence, "_fast": True}
 
-def get_structured_intent(user_message: str) -> dict:
+async def get_structured_intent(user_message: str) -> dict:
     """Hybrid NLU: fast deterministic path first, LLM fallback when low confidence or enrichment needed.
 
     Fallback triggers:
@@ -95,11 +95,12 @@ Rules:
 - Never include explanatory text—only JSON.
 """
     try:
-        response_text = ai_service.generate_ai_response(prompt)
-        cleaned = response_text.strip().replace('```json', '').replace('```', '').strip()
-        result = json.loads(cleaned)
-        if isinstance(result, dict) and result.get("action"):
-            return result
+        response_text = await ai_service.generate_ai_response(prompt)  # async alias
+        if isinstance(response_text, str):
+            cleaned = response_text.strip().replace('```json', '').replace('```', '').strip()
+            result = json.loads(cleaned)
+            if isinstance(result, dict) and result.get("action"):
+                return result
     except Exception as e:  # noqa: BLE001
         print(f"NLU fallback LLM error: {e}")
     # Fallback final

@@ -1,7 +1,12 @@
 import axios from 'axios';
 
-// The base URL of our FastAPI backend.
-const API_URL = 'http://localhost:8000/auth/';
+// Resolve backend base from env; default to localhost, and prefer /api/auth endpoints.
+// If the provided env already ends with /api, don't double-append.
+const RAW_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = RAW_BASE.endsWith('/api') ? RAW_BASE : `${RAW_BASE}/api`;
+const API_AUTH = `${API_BASE}/auth/`;
+// Legacy fallback (older backends expose /auth/* without /api prefix)
+const LEGACY_AUTH = `${RAW_BASE}/auth/`;
 
 /**
  * A service object for handling authentication-related API calls.
@@ -14,9 +19,17 @@ const authService = {
    * @returns {Promise} - The Axios promise for the API call.
    */
   register(email, password) {
-    return axios.post(API_URL + 'register', {
+    // Prefer modern route
+    return axios.post(API_AUTH + 'register', {
       email,
       password,
+    }).catch(async (err) => {
+      // Fallback to legacy path transparently
+      try {
+        return await axios.post(LEGACY_AUTH + 'register', { email, password });
+      } catch (e) {
+        throw err; // propagate original error if legacy also fails
+      }
     });
   },
 
@@ -32,10 +45,19 @@ const authService = {
     formData.append('username', email);
     formData.append('password', password);
 
-    return axios.post(API_URL + 'login', formData, {
+    // Try modern route first
+    const doPost = (base) => axios.post(base + 'login', formData, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
+    });
+    return doPost(API_AUTH).catch(async (err) => {
+      try {
+        // Fallback to legacy route
+        return await doPost(LEGACY_AUTH);
+      } catch (e) {
+        throw err;
+      }
     });
   },
 

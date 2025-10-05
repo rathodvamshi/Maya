@@ -39,6 +39,7 @@ def compose_prompt(*,
     neo4j_facts: Optional[str],
     profile: Optional[Dict[str, Any]] = None,
     user_facts_semantic: Optional[List[str]] = None,
+    persistent_memories: Optional[List[Dict[str, Any]]] = None,
     history_messages: int = DEFAULT_HISTORY_MESSAGES,
 ) -> str:
     # 1. Select last N messages and format
@@ -98,6 +99,15 @@ def compose_prompt(*,
         prompt_parts.append(f"Facts (may be partial):\n{facts_block}")
     if semantic_block:
         prompt_parts.append(f"Relevant prior snippets:\n{semantic_block}")
+    # 6. Persistent memories block (structured long-term)
+    if persistent_memories:
+        mem_lines = []
+        for m in persistent_memories[:8]:  # bounded
+            title = m.get("title") or m.get("id")
+            val = m.get("value") or ""
+            mem_lines.append(f"{title}: {val}")
+        if mem_lines:
+            prompt_parts.append("Long-Term Memory:\n" + _truncate("; ".join(mem_lines), 600))
     prompt_parts.append(f"Conversation so far:\n{rendered_history}")
     prompt_parts.append(f"Human: {user_message}\nAssistant:")
 

@@ -109,3 +109,93 @@ def delete_cache_key(cache_key: str):
         logger.info(f"✅ Deleted cache key: {cache_key}")
     except Exception as e:
         logger.error(f"Failed to delete cache key {cache_key}: {e}")
+
+
+# =====================================================
+# 🔹 Provider Adaptive Stats (cross-restart persistence)
+# =====================================================
+async def record_provider_win(provider: str, ttl_seconds: int = 86400):
+    """Increment win counter for a provider.
+
+    Stored under key: provider:win:<provider>
+    TTL applied so stale providers naturally age out.
+    """
+    if not redis_client:
+        return
+    key = f"provider:win:{provider}"
+    try:
+        # INCR then ensure TTL (only set if new or missing)
+        await redis_client.incr(key)
+        ttl = await redis_client.ttl(key)
+        if ttl == -1:  # -1 means no expiry set
+            await redis_client.expire(key, ttl_seconds)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"record_provider_win failed provider={provider}: {e}")
+
+
+async def record_provider_latency(provider: str, latency_ms: int, max_samples: int = 50, ttl_seconds: int = 86400):
+    """Record a latency sample for a provider.
+
+    Uses a capped Redis list (LPUSH + LTRIM) so we keep only the most recent N samples.
+    Key: provider:latencies:<provider>
+    """
+    if not redis_client:
+        return
+    key = f"provider:latencies:{provider}"
+    try:
+        await redis_client.lpush(key, int(latency_ms))
+        await redis_client.ltrim(key, 0, max_samples - 1)
+        ttl = await redis_client.ttl(key)
+        if ttl == -1:
+            await redis_client.expire(key, ttl_seconds)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"record_provider_latency failed provider={provider}: {e}")
+
+
+async def fetch_adaptive_stats(providers: Optional[list[str]] = None) -> Dict[str, Any]:
+    """Fetch persisted adaptive stats for providers.
+
+    Returns structure:
+    {
+       "wins": {provider: int},
+       "avg_latency_ms": {provider: float},
+       "samples": {provider: int}
+    }
+    Safe to call even if redis unavailable (returns empty stats).
+    """
+    if not providers:
+        providers = ["gemini", "cohere", "anthropic"]
+    result: Dict[str, Any] = {"wins": {}, "avg_latency_ms": {}, "samples": {}}
+    if not redis_client:
+        return result
+    try:
+        for p in providers:
+            win_key = f"provider:win:{p}"
+            lat_key = f"provider:latencies:{p}"
+            try:
+                wins_raw = await redis_client.get(win_key)
+                wins = int(wins_raw) if wins_raw is not None else 0
+                lats_raw = await redis_client.lrange(lat_key, 0, -1)
+                samples = [int(v) for v in lats_raw] if lats_raw else []
+                avg = float(sum(samples) / len(samples)) if samples else 0.0
+                result["wins"][p] = wins
+                result["avg_latency_ms"][p] = round(avg, 2)
+                result["samples"][p] = len(samples)
+            except Exception as inner_e:  # noqa: BLE001
+                logger.debug(f"fetch_adaptive_stats inner failure provider={p}: {inner_e}")
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"fetch_adaptive_stats failed: {e}")
+        return result
+
+
+__all__ = [
+    "get_session_state",
+    "set_session_state",
+    "set_prefetched_data",
+    "get_prefetched_data",
+    "delete_cache_key",
+    "record_provider_win",
+    "record_provider_latency",
+    "fetch_adaptive_stats",
+]

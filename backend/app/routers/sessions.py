@@ -8,6 +8,7 @@ from typing import List, Optional
 from app.database import get_sessions_collection, get_user_profile_collection, get_tasks_collection
 from app.security import get_current_active_user
 from app.services import ai_service, nlu, redis_cache
+from app.services import memory_store  # For fast redis-backed history when available
 from app.services.memory_coordinator import gather_memory_context, post_message_update
 from app.celery_worker import celery_app
 import dateparser
@@ -50,11 +51,22 @@ async def create_session(messages: List[Message], current_user: dict = Depends(g
     first_user_msg = next((m.text for m in messages if m.sender == 'user'), "New Chat")
     title = (first_user_msg[:50] + "...") if len(first_user_msg) > 50 else first_user_msg
     
+    now = datetime.utcnow()
     new_session = {
         "userId": current_user["_id"],
         "title": title,
-        "createdAt": datetime.utcnow(),
-        "messages": [m.model_dump() for m in messages]
+        "createdAt": now,
+        "updatedAt": now,
+        "lastMessageAt": now,
+        "messageCount": len(messages),
+        "lastMessage": messages[-1].text if messages else "",
+        "pinned": False,
+        "saved": False,
+        # Embed timestamps on individual messages for faster client formatting
+        "messages": [
+            {**m.model_dump(), "timestamp": now if i == len(messages) - 1 else now}  # simple same-ts boot strap
+            for i, m in enumerate(messages)
+        ],
     }
     result = sessions_collection.insert_one(new_session)
     return {"id": str(result.inserted_id), "title": title, "createdAt": new_session["createdAt"]}
@@ -63,9 +75,49 @@ async def create_session(messages: List[Message], current_user: dict = Depends(g
 @router.get("/", response_model=List[dict])
 async def get_sessions(current_user: dict = Depends(get_current_active_user),
                        sessions_collection: Collection = Depends(get_sessions_collection)):
-    cursor = sessions_collection.find({"userId": current_user["_id"]}, {"messages": 0}).sort("createdAt", -1)
-    sessions = [{"id": str(s["_id"]), "title": s["title"], "createdAt": s["createdAt"]} for s in cursor]
-    return sessions
+    """List chat sessions for the current user.
+
+    Robust against legacy documents that may store userId as ObjectId or string
+    and against missing fields (avoids raising 500s). Returns empty list on failure.
+    """
+    try:
+        user_id = (current_user.get("userId") or current_user.get("user_id") or current_user.get("_id"))
+        if not user_id:
+            return []
+
+        query_variants = [{"userId": user_id}]
+        # Support legacy ObjectId storage
+        if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+            query_variants.append({"userId": ObjectId(user_id)})
+
+        cursor = sessions_collection.find({"$or": query_variants}, {"messages": 0}).sort("updatedAt", -1)
+        sessions: List[dict] = []
+        for s in cursor:
+            created_at = s.get("createdAt")
+            updated_at = s.get("updatedAt", created_at)
+            sessions.append({
+                "id": str(s["_id"]),
+                "title": s.get("title", "Untitled Chat"),
+                "createdAt": created_at,
+                "updatedAt": updated_at,
+                "lastMessage": s.get("lastMessage"),
+                "messageCount": s.get("messageCount", len(s.get("messages", []))),
+                "pinned": bool(s.get("pinned", False)),
+                "saved": bool(s.get("saved", False)),
+            })
+
+        # Sort: pinned first then most recently updated
+        sessions.sort(
+            key=lambda x: (
+                1 if x.get("pinned") else 0,
+                x.get("updatedAt") or x.get("createdAt") or datetime.utcnow(),
+            ),
+            reverse=True,
+        )
+        return sessions
+    except Exception:
+        # Defensive: never bubble internal errors to client for this listing endpoint
+        return []
 
 
 @router.get("/{session_id}")
@@ -109,6 +161,210 @@ async def delete_session(session_id: str,
         raise HTTPException(status_code=404, detail="Session not found or permission denied.")
 
 
+@router.get("/{session_id}/history")
+async def get_session_history(
+    session_id: str,
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_active_user),
+    sessions_collection: Collection = Depends(get_sessions_collection),
+):
+    """Get message history for a specific session using efficient Mongo slice & optional Redis fast-path.
+
+    Optimizations:
+      - For first-page (offset=0) small limits (<=50), try Redis session history (memory_store) before Mongo.
+      - Use aggregation with $project + $slice so we never materialize the full messages array in Python.
+      - Include lightweight metadata (messageCount, updatedAt) for client caching heuristics.
+    """
+    if not ObjectId.is_valid(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID.")
+
+    # Attempt Redis fast-path when requesting the most recent slice (offset == 0)
+    if offset == 0 and limit <= 50:
+        try:
+            redis_hist = await memory_store.get_session_history(session_id, limit=limit)
+            if redis_hist:  # redis returns list[{role, content}]
+                messages_fmt = [
+                    {
+                        "id": str(ObjectId()),
+                        "text": m.get("content", ""),
+                        "sender": "user" if m.get("role") == "user" else "assistant",
+                        "timestamp": datetime.utcnow(),  # Redis history lacks exact ts; use now for display
+                        "sessionId": session_id,
+                    }
+                    for m in redis_hist
+                ]
+                # Fallback total unknown; mark has_more True to allow client to request more if needed
+                return {
+                    "messages": messages_fmt,
+                    "total": len(messages_fmt),
+                    "offset": 0,
+                    "limit": limit,
+                    "has_more": True,  # conservative
+                    "source": "redis",
+                }
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Mongo aggregation for paginated slice
+    pipeline = [
+        {"$match": {"_id": ObjectId(session_id), "userId": current_user["_id"]}},
+        {"$project": {
+            "messageCount": {"$size": "$messages"},
+            "messages": {"$slice": ["$messages", offset, limit]},
+            "updatedAt": 1,
+            "title": 1,
+        }},
+    ]
+
+    docs = list(sessions_collection.aggregate(pipeline))
+    if not docs:
+        raise HTTPException(status_code=404, detail="Session not found or permission denied.")
+
+    doc = docs[0]
+    total = doc.get("messageCount", 0)
+    raw_messages = doc.get("messages", [])
+
+    formatted_messages = [
+        {
+            "id": str(m.get("_id", ObjectId())),
+            "text": m.get("text", ""),
+            "sender": m.get("sender", "assistant" if i % 2 else "user"),
+            "timestamp": m.get("timestamp", datetime.utcnow()),
+            "sessionId": session_id,
+        }
+        for i, m in enumerate(raw_messages)
+    ]
+
+    return {
+        "messages": formatted_messages,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+        "source": "mongo",
+        "updatedAt": doc.get("updatedAt"),
+    }
+
+
+@router.put("/{session_id}/title")
+async def update_session_title(
+    session_id: str,
+    title_data: dict,
+    current_user: dict = Depends(get_current_active_user),
+    sessions_collection: Collection = Depends(get_sessions_collection)
+):
+    """Update session title."""
+    if not ObjectId.is_valid(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID.")
+    
+    title = title_data.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty.")
+    
+    result = sessions_collection.update_one(
+        {"_id": ObjectId(session_id), "userId": current_user["_id"]},
+        {"$set": {"title": title, "updatedAt": datetime.utcnow()}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found or permission denied.")
+    
+    return {"success": True, "title": title}
+
+
+@router.put("/{session_id}/pin")
+async def set_session_pinned(
+    session_id: str,
+    data: dict,
+    current_user: dict = Depends(get_current_active_user),
+    sessions_collection: Collection = Depends(get_sessions_collection)
+):
+    """Set pinned state for a session."""
+    if not ObjectId.is_valid(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID.")
+    pinned = bool(data.get("pinned", False))
+    result = sessions_collection.update_one(
+        {"_id": ObjectId(session_id), "userId": current_user["_id"]},
+        {"$set": {"pinned": pinned, "updatedAt": datetime.utcnow()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return {"success": True, "pinned": pinned}
+
+
+@router.put("/{session_id}/save")
+async def set_session_saved(
+    session_id: str,
+    data: dict,
+    current_user: dict = Depends(get_current_active_user),
+    sessions_collection: Collection = Depends(get_sessions_collection)
+):
+    """Set saved state for a session."""
+    if not ObjectId.is_valid(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID.")
+    saved = bool(data.get("saved", False))
+    result = sessions_collection.update_one(
+        {"_id": ObjectId(session_id), "userId": current_user["_id"]},
+        {"$set": {"saved": saved, "updatedAt": datetime.utcnow()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return {"success": True, "saved": saved}
+
+
+@router.post("/{session_id}/generate-title")
+async def generate_session_title(
+    session_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    sessions_collection: Collection = Depends(get_sessions_collection)
+):
+    """Generate an automatic title for the session based on its content."""
+    if not ObjectId.is_valid(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID.")
+    
+    # Find the session
+    session = sessions_collection.find_one({
+        "_id": ObjectId(session_id), 
+        "userId": current_user["_id"]
+    })
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or permission denied.")
+    
+    messages = session.get("messages", [])
+    if not messages:
+        raise HTTPException(status_code=400, detail="Cannot generate title for empty session.")
+    
+    # Get first few user messages to generate title
+    user_messages = [msg.get("text", "") for msg in messages if msg.get("sender") == "user"]
+    if not user_messages:
+        title = "Chat Session"
+    else:
+        # Use first message to generate a simple title
+        first_message = user_messages[0][:50]  # Truncate to 50 chars
+        # Simple title generation - you can enhance this with AI
+        if "help" in first_message.lower():
+            title = f"Help: {first_message[:30]}..."
+        elif "?" in first_message:
+            title = f"Question: {first_message[:30]}..."
+        else:
+            title = f"Chat: {first_message[:30]}..."
+        
+        # Clean up the title
+        title = title.replace("\n", " ").strip()
+        if len(title) > 50:
+            title = title[:47] + "..."
+    
+    # Update the session with the generated title
+    sessions_collection.update_one(
+        {"_id": ObjectId(session_id), "userId": current_user["_id"]},
+        {"$set": {"title": title, "updatedAt": datetime.utcnow()}}
+    )
+    
+    return {"title": title}
+
+
 # -----------------------------
 # Chat Messaging within a Session
 # -----------------------------
@@ -133,7 +389,7 @@ async def send_message(session_id: str,
     
     # --- NLU Processing ---
     ai_response_text = ""
-    nlu_result = nlu.get_structured_intent(chat_req.message)
+    nlu_result = await nlu.get_structured_intent(chat_req.message)
     action = nlu_result.get("action")
 
     # Minimal state mapping to align with memory model
@@ -203,20 +459,38 @@ async def send_message(session_id: str,
                 history_for_prompt.append({"sender": m["sender"], "text": m["text"]})
 
         # 3) Generate response using the system prompt and all memories
-        ai_response_text = ai_service.get_response(
+        # Fetch user profile document for personalization & telemetry (if exists)
+        user_profile_doc = user_profiles.find_one({"email": user_email}) or {}
+        # Inject user_id for downstream telemetry if missing
+        if "user_id" not in user_profile_doc and current_user.get("_id"):
+            user_profile_doc["user_id"] = str(current_user["_id"])
+
+        ai_response_text = await ai_service.get_response(
             prompt=chat_req.message,
             history=history_for_prompt,
             pinecone_context=memory_ctx.get("pinecone_context"),
             neo4j_facts=memory_ctx.get("neo4j_facts"),
             state=state_for_session,
+            profile=user_profile_doc,
+            session_id=str(session_id),
         )
     
-    ai_message = {"sender": "assistant", "text": ai_response_text}
+    now = datetime.utcnow()
+    ai_message = {"sender": "assistant", "text": ai_response_text, "timestamp": now}
+    user_message["timestamp"] = user_message.get("timestamp", now)
 
     # Push both messages atomically to session
     sessions_collection.update_one(
         {"_id": ObjectId(session_id), "userId": current_user["_id"]},
-        {"$push": {"messages": {"$each": [user_message, ai_message]}}}
+        {
+            "$push": {"messages": {"$each": [user_message, ai_message]}},
+            "$set": {
+                "updatedAt": now,
+                "lastMessageAt": now,
+                "lastMessage": ai_response_text[:200],
+            },
+            "$inc": {"messageCount": 2},
+        },
     )
 
     # Post-update: update short-term memory, embeddings, and schedule fact extraction

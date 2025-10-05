@@ -30,6 +30,7 @@ from app.services import pinecone_service, profile_service
 from app.services.neo4j_service import neo4j_service
 from app.services import redis_service as redis_async_service  # may be None in some envs
 from app.services import memory_store
+from app.services import memory_service
 from app.utils.history import trim_history
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,128 @@ async def gather_memory_context(
     # 4) Trim history to budget
     trimmed_history = trim_history(history, max_chars=history_char_budget)
 
+    # 5) Long-term memories (Mongo) basic retrieval (priority + salience ordering)
+    persistent_memories: List[dict] = []
+    blocked_memories: List[str] = []
+    scoring_records: List[dict] = []
+    try:
+        from app.services.pinecone_service import query_user_memories
+        # Base docs for metadata (salience, priority, recency)
+        raw_mems = await memory_service.list_memories(user_id, limit=300, lifecycle=["active", "candidate", "distilled"])
+        mem_by_id = {m.get("_id"): m for m in raw_mems}
+        pine_matches = query_user_memories(user_id, latest_user_message, top_k=15) or []
+        SENSITIVE_KEYWORDS = ["password", "ssn", "account", "credit card", "bank"]
+        priority_weights = {"system": 1.3, "critical": 1.15, "normal": 1.0, "low": 0.9}
+        redis_cli = getattr(redis_async_service, "redis_client", None)
+        gating_cfg = {
+            "enable": getattr(__import__('app.config').config.settings, 'MEMORY_GATE_ENABLE', True),
+            "min_salience": getattr(__import__('app.config').config.settings, 'MEMORY_GATE_MIN_SALIENCE', 0.85),
+            "min_trust": getattr(__import__('app.config').config.settings, 'MEMORY_GATE_MIN_TRUST', 0.55),
+            "min_composite": getattr(__import__('app.config').config.settings, 'MEMORY_GATE_MIN_COMPOSITE', 0.35),
+            "log_skipped": getattr(__import__('app.config').config.settings, 'MEMORY_GATE_LOG_SKIPPED', True),
+        }
+        for pm in pine_matches:
+            mid = pm.get("memory_id")
+            if not mid or mid not in mem_by_id:
+                continue
+            m = mem_by_id[mid]
+            val_text = (m.get("value") or "")
+            sens_level = (m.get("sensitivity") or {}).get("level")
+            low_val = val_text.lower()
+            sensitive_flag = (sens_level and sens_level != "none") or any(k in low_val for k in SENSITIVE_KEYWORDS)
+            if sensitive_flag:
+                blocked_memories.append(mid)
+                try:
+                    from app.services.memory_service import log_pii_block as _log
+                    rule = sens_level or next((kw for kw in SENSITIVE_KEYWORDS if kw in low_val), "keyword_match")
+                    _log(user_id, mid, latest_user_message, rule, sens_level or "keyword")
+                except Exception:
+                    pass
+                continue
+            priority = m.get("priority", "normal")
+            salience = m.get("salience_score", 1.0) or 1.0
+            recency_days = 999
+            try:
+                ts = m.get("last_accessed_at") or m.get("updated_at")
+                if ts:
+                    dt = datetime.fromisoformat(ts.replace("Z", ""))
+                    recency_days = max(0, (datetime.utcnow() - dt).days)
+            except Exception:
+                pass
+            recency_factor = 1.0
+            if recency_days < 1:
+                recency_factor = 1.15
+            elif recency_days < 7:
+                recency_factor = 1.05
+            elif recency_days > 45:
+                recency_factor = 0.85
+            similarity = pm.get("similarity") or 0.0001
+            trust_conf = (m.get("trust") or {}).get("confidence") or 0.75
+            trust_factor = 0.8 + 0.2 * float(trust_conf)
+            base = similarity * priority_weights.get(priority, 1.0) * salience * recency_factor * trust_factor
+            # --- Proactive Recall Gating ---
+            gated = False
+            if gating_cfg["enable"]:
+                user_flags = m.get("user_flags") or {}
+                override = user_flags.get("gating_override") is True
+                composite = (similarity or 0.0) * float(salience) * float(trust_conf)
+                if not override and (
+                    salience < gating_cfg["min_salience"] or
+                    trust_conf < gating_cfg["min_trust"] or
+                    composite < gating_cfg["min_composite"]
+                ):
+                    gated = True
+            if gated:
+                if gating_cfg["log_skipped"]:
+                    scoring_records.append({
+                        "memory_id": mid,
+                        "similarity": round(float(similarity), 4),
+                        "recency_days": recency_days,
+                        "priority": priority,
+                        "salience": salience,
+                        "recency_factor": round(recency_factor, 3),
+                        "trust_factor": round(trust_factor, 3),
+                        "score": round(base, 5),
+                        "gated": True,
+                    })
+                continue
+            scoring_records.append({
+                "memory_id": mid,
+                "similarity": round(float(similarity), 4),
+                "recency_days": recency_days,
+                "priority": priority,
+                "salience": salience,
+                "recency_factor": round(recency_factor, 3),
+                "trust_factor": round(trust_factor, 3),
+                "score": round(base, 5),
+                "gated": False,
+            })
+        scoring_records.sort(key=lambda r: r["score"], reverse=True)
+        top_records = scoring_records[: top_k_user_facts]
+        for r in top_records:
+            mid = r["memory_id"]
+            mm = mem_by_id.get(mid)
+            if mm:
+                persistent_memories.append({
+                    "id": mm.get("_id"),
+                    "title": mm.get("title"),
+                    "value": mm.get("value"),
+                    "priority": mm.get("priority"),
+                    "lifecycle_state": mm.get("lifecycle_state"),
+                })
+                # Frequency counter increment
+                if redis_cli:
+                    try:
+                        await redis_cli.incr(f"user:{user_id}:memory_freq:{mid}")
+                    except Exception:
+                        pass
+        try:
+            asyncio.create_task(memory_service.log_recall_event(user_id, latest_user_message, scoring_records[:40]))
+        except Exception:
+            pass
+    except Exception as e:
+        logger.debug(f"Memory retrieval failed (similarity layer): {e}")
+
     return {
         "state": state,
         "history": trimmed_history,
@@ -162,6 +285,8 @@ async def gather_memory_context(
         "neo4j_facts": neo4j_facts,
         "profile": profile,
         "user_facts_semantic": user_fact_snippets,
+        "persistent_memories": persistent_memories,
+        "blocked_memory_ids": blocked_memories,
         "timings": {
             "semantic_ms": round(semantic_time_ms, 2),
             "graph_ms": round(graph_time_ms, 2),
@@ -198,7 +323,7 @@ def _upsert_embeddings(user_id: str, session_id: str, user_message: str, ai_mess
         logger.debug(f"Failed to upsert embeddings: {e}")
 
 
-def post_message_update(
+async def post_message_update_async(
     *,
     user_id: str,
     user_key: str,
@@ -207,52 +332,36 @@ def post_message_update(
     ai_message: str,
     state: Optional[str] = None,
 ):
-    """Call after the AI response is generated to update memories and dispatch tasks.
+    """Async variant to be awaited by async routers/services.
 
-    - Appends conversation messages to Redis history
-    - Optionally updates Redis session state
-    - Upserts message embeddings into Pinecone
-    - Enqueues fact extraction into Neo4j via Celery
+    Responsibilities:
+      - Fire-and-forget append of conversation history
+      - Optional session state update
+      - Synchronous embedding upsert (CPU / network bound; left sync)
+      - Gated background fact extraction scheduling
     """
-    # a) Append to Redis history and session state (best-effort)
-    # Append conversation history (fire-and-forget best effort)
+    # a) Append to Redis history & optional state
     try:
-        import asyncio
         asyncio.create_task(_append_history(session_id, user_message, ai_message))
     except Exception:  # noqa: BLE001
         pass
-
-    # Update session state if provided
     if state:
         try:
-            import asyncio
             asyncio.create_task(memory_store.set_session_state(session_id, state))
         except Exception:  # noqa: BLE001
             pass
 
-    # b) Upsert embeddings
+    # b) Upsert embeddings (sync call encapsulates its own try/except)
     _upsert_embeddings(user_id, session_id, user_message, ai_message)
 
-    # c) Extract and store facts (background) with gating
+    # c) Gate fact extraction
     try:
-        should_extract = False
-        # Gate by message length OR every 3rd user message overall
-        long_message = len(user_message) > 220  # heuristic threshold
-        try:
-            import asyncio as _asyncio
-            counter = _asyncio.get_event_loop().run_until_complete(
-                memory_store.increment_user_message_counter(user_id)
-            )
-        except Exception:
-            counter = 0
-        if long_message or (counter % 3 == 0):
-            should_extract = True
-
+        long_message = len(user_message) > 220
+        counter = await memory_store.increment_user_message_counter(user_id)
+        should_extract = long_message or (counter % 3 == 0)
         if should_extract:
-            # Invalidate facts cache so next retrieval picks up new facts
             try:
-                import asyncio as _asyncio
-                _asyncio.get_event_loop().run_until_complete(memory_store.invalidate_facts_cache(user_id))
+                await memory_store.invalidate_facts_cache(user_id)
             except Exception:  # noqa: BLE001
                 pass
             from app.celery_worker import extract_and_store_facts_task
@@ -261,3 +370,19 @@ def post_message_update(
             )
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Gated fact extraction scheduling failed: {e}")
+
+
+def post_message_update(**kwargs):
+    """Backward compatible sync shim.
+
+    If called in a running event loop, schedule the async version.
+    Otherwise, create a new loop and run (should be rare in FastAPI context).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        loop.create_task(post_message_update_async(**kwargs))
+    else:
+        asyncio.run(post_message_update_async(**kwargs))

@@ -315,6 +315,8 @@ __all__ = [
     "pinecone_service",
     "upsert_message_embedding",
     "upsert_user_fact_embedding",
+    "upsert_memory_embedding",
+    "query_user_memories",
     "query_similar_texts",
     "query_user_facts",
     "bulk_upsert",
@@ -395,3 +397,74 @@ def query_user_facts(user_id: str, hint_text: str, top_k: int = 5) -> List[str]:
     except Exception as e:
         logger.debug(f"Pinecone query_similar_texts failed: {e}")
         return None
+
+
+def upsert_memory_embedding(memory_id: str, user_id: str, text: str, lifecycle_state: str):
+    """Add/replace embedding for a structured memory item.
+
+    Vector id format: memory:{memory_id}
+    Metadata distinguishes from messages/facts.
+    """
+    if not _ensure_index_ready() or not text:
+        return
+    try:
+        emb = create_embedding(text)
+        if not emb:
+            return
+        vid = f"memory:{memory_id}"
+        meta = {
+            "user_id": user_id,
+            "kind": "memory",
+            "memory_id": memory_id,
+            "lifecycle_state": lifecycle_state,
+            "text": text,
+        }
+        index.upsert(vectors=[(vid, emb, meta)])
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"upsert_memory_embedding failed: {e}")
+
+
+def query_user_memories(user_id: str, query_text: str, top_k: int = 8) -> List[Dict[str, Any]]:
+    """Return top memory vectors with similarity score and metadata.
+
+    Only active/candidate/distilled lifecycle memories are considered (filter on metadata lifecycle_state if present).
+    """
+    if not _ensure_index_ready() or not query_text:
+        return []
+    try:
+        emb = create_embedding(query_text)
+        if not emb:
+            return []
+        res = index.query(
+            vector=emb,
+            top_k=top_k,
+            include_metadata=True,
+            filter={"user_id": {"$eq": user_id}, "kind": {"$eq": "memory"}},
+        )
+        matches = (
+            getattr(res, "matches", None)
+            if not isinstance(res, dict)
+            else res.get("matches", [])
+        ) or []
+        out: List[Dict[str, Any]] = []
+        for m in matches:
+            score = getattr(m, "score", None)
+            md = getattr(m, "metadata", None)
+            if score is None and isinstance(m, dict):
+                score = m.get("score")
+                md = m.get("metadata")
+            if isinstance(md, dict):
+                # Filter by lifecycle if needed
+                lc = md.get("lifecycle_state")
+                if lc and lc not in ("active", "candidate", "distilled"):
+                    continue
+                out.append({
+                    "memory_id": md.get("memory_id"),
+                    "similarity": score,
+                    "text": md.get("text"),
+                    "lifecycle_state": lc,
+                })
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"query_user_memories failed: {e}")
+        return []

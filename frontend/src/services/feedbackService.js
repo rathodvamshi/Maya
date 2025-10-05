@@ -13,7 +13,7 @@ const feedbackService = {
    * @returns {Promise<AxiosResponse<any>>}
    */
   submitFeedback: (feedbackData) => {
-    return apiClient.post('/api/feedback/', feedbackData);
+  return apiClient.post('/feedback/', feedbackData);
   },
 };
 
