@@ -191,6 +191,17 @@ const useChatManager = ({ state, dispatch }) => {
             const updatedSessions = await loadSessions();
             dispatch({ type: 'NEW_SESSION_CREATED', payload: { sessionId: newChatResponse.data.session_id, updatedSessions } });
             dispatch({ type: 'SEND_MESSAGE_SUCCESS', payload: { assistantMessage } });
+            // If backend provided a confident video selection, append it after the reply
+            const v = newChatResponse?.data?.video;
+            if (v && v.videoId) {
+              const videoMessage = {
+                sender: 'assistant',
+                text: v.title || 'Video',
+                youtube: { videoId: v.videoId },
+                timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true })
+              };
+              dispatch({ type: 'SEND_MESSAGE_SUCCESS', payload: { assistantMessage: videoMessage } });
+            }
           } else {
             const continueChatResponse = await chatService.sendMessage(state.activeSessionId, userMessage.text);
             const assistantMessage = { 
@@ -199,6 +210,16 @@ const useChatManager = ({ state, dispatch }) => {
               timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }) 
             };
             dispatch({ type: 'SEND_MESSAGE_SUCCESS', payload: { assistantMessage } });
+            const v = continueChatResponse?.data?.video;
+            if (v && v.videoId) {
+              const videoMessage = {
+                sender: 'assistant',
+                text: v.title || 'Video',
+                youtube: { videoId: v.videoId },
+                timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true })
+              };
+              dispatch({ type: 'SEND_MESSAGE_SUCCESS', payload: { assistantMessage: videoMessage } });
+            }
           }
         } catch (error) {
           console.error("Error sending message:", error);

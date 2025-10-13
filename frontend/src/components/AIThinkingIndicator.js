@@ -1,3 +1,7 @@
+
+// Yes. It shows an animated “AI is thinking” progress sequence while the app waits for the model’s reply, giving users visual feedback that processing steps are happening.
+
+
 // AI Thinking/Processing Indicator Component
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';

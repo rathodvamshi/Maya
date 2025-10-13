@@ -181,67 +181,7 @@ const LandingPage = () => {
                 ))}
             </div>
 
-            {/* Glassmorphism Top Navbar */}
-            <motion.nav 
-                className={`glassmorphism-navbar ${isScrolled ? 'scrolled' : ''}`}
-                initial={{ y: -100, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.3, ease: "easeOut" }}
-                style={{
-                    scale: navbarScale,
-                    top: navbarY
-                }}
-            >
-                <div className="glassmorphism-navbar-content">
-                    <div className="navbar-brand">
-                        <MayaLogo size={28} />
-                        <span className="brand-text">Maya</span>
-                    </div>
-                    
-                    <div className="navbar-menu">
-                        <motion.button 
-                            onClick={() => smoothScroll(heroRef)}
-                            className="nav-menu-item"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                        >
-                            Home
-                        </motion.button>
-                        <motion.button 
-                            onClick={() => smoothScroll(featuresRef)}
-                            className="nav-menu-item"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                        >
-                            Explore
-                        </motion.button>
-                        <motion.button 
-                            onClick={() => smoothScroll(contactRef)}
-                            className="nav-menu-item"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                        >
-                            Contact
-                        </motion.button>
-                        <motion.button 
-                            onClick={() => setAuthModal({ isOpen: true, mode: 'signin' })}
-                            className="nav-menu-item auth-item"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                        >
-                            Login
-                        </motion.button>
-                        <motion.button 
-                            onClick={() => setAuthModal({ isOpen: true, mode: 'signup' })}
-                            className="nav-menu-item auth-item signup-btn"
-                            whileHover={{ scale: 1.05, boxShadow: "0 8px 25px rgba(255, 107, 157, 0.4)" }}
-                            whileTap={{ scale: 0.95 }}
-                        >
-                            Sign Up
-                        </motion.button>
-                    </div>
-                </div>
-            </motion.nav>
+            {/* Top navbar removed as per request */}
 
             {/* Hero Section */}
             <motion.section 
@@ -322,11 +262,7 @@ const LandingPage = () => {
             {/* Contact Section */}
             <ContactSection ref={contactRef} />
 
-            {/* Side Navigation */}
-            <SideNavigation 
-                sections={sideNavSections}
-                smoothScroll={smoothScroll}
-            />
+            {/* Side navigation removed as per request */}
 
             {/* Auth Modal */}
             <AuthModal
@@ -520,55 +456,6 @@ const ContactSection = React.forwardRef((props, ref) => {
     );
 });
 
-// Side Navigation Component
-const SideNavigation = ({ sections, smoothScroll }) => {
-    const [activeSection, setActiveSection] = useState(0);
-
-    useEffect(() => {
-        const handleScroll = () => {
-            const scrollPosition = window.scrollY + window.innerHeight / 2;
-            
-            sections.forEach((section, index) => {
-                if (section.ref.current) {
-                    const element = section.ref.current;
-                    const elementTop = element.offsetTop;
-                    const elementBottom = elementTop + element.offsetHeight;
-                    
-                    if (scrollPosition >= elementTop && scrollPosition <= elementBottom) {
-                        setActiveSection(index);
-                    }
-                }
-            });
-        };
-
-        window.addEventListener('scroll', handleScroll);
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, [sections]);
-
-    return (
-        <motion.div 
-            className="side-navigation"
-            initial={{ x: 100, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ duration: 0.8, delay: 1 }}
-        >
-            <div className="side-nav-line" />
-            {sections.map((section, index) => (
-                <motion.button
-                    key={section.id}
-                    className={`side-nav-item ${index === activeSection ? 'active' : ''}`}
-                    onClick={() => smoothScroll(section.ref)}
-                    whileHover={{ scale: 1.2 }}
-                    whileTap={{ scale: 0.9 }}
-                    title={section.label}
-                >
-                    <span className="nav-number">{index + 1}</span>
-                    <div className="nav-icon">{section.icon}</div>
-                    <span className="nav-label">{section.label}</span>
-                </motion.button>
-            ))}
-        </motion.div>
-    );
-};
+// SideNavigation component removed
 
 export default LandingPage;

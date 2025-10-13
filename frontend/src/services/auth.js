@@ -41,14 +41,11 @@ const authService = {
    * @returns {Promise} - The Axios promise for the API call.
    */
   login(email, password) {
-    const formData = new URLSearchParams();
-    formData.append('username', email);
-    formData.append('password', password);
-
+    const payload = { email, password };
     // Try modern route first
-    const doPost = (base) => axios.post(base + 'login', formData, {
+    const doPost = (base) => axios.post(base + 'login', payload, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
       },
     });
     return doPost(API_AUTH).catch(async (err) => {

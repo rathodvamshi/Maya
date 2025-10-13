@@ -1,40 +1,18 @@
-###############################################
-# Global ignores
-###############################################
-.DS_Store
-*.log
-*.tmp
-*.swp
-
-###############################################
-# Environment files
-###############################################
-.env
-*.env
-**/.env
-
-###############################################
-# Python / Backend
-###############################################
-**/__pycache__/
-**/.pytest_cache/
+# Python/Backend
+__pycache__/
 *.pyc
-*.pyo
-*.pyd
-backend/venv/
+venv/
+.env
+
 backend/.env
-backend/celerybeat-schedule.*
 
-###############################################
-# Node / Frontend
-###############################################
+# Node/Frontend
 node_modules/
-frontend/node_modules/
 build/
-frontend/build/
+.DS_Store
 
-###############################################
-# IDE / Editor
-###############################################
+# IDE-specific
 .idea/
 .vscode/
+".env" 
+".env" 

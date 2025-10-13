@@ -41,6 +41,7 @@ def compose_prompt(*,
     user_facts_semantic: Optional[List[str]] = None,
     persistent_memories: Optional[List[Dict[str, Any]]] = None,
     history_messages: int = DEFAULT_HISTORY_MESSAGES,
+    system_override: Optional[str] = None,
 ) -> str:
     # 1. Select last N messages and format
     selected = history[-history_messages:] if history_messages > 0 else []
@@ -87,8 +88,11 @@ def compose_prompt(*,
     user_fact_block = _truncate("; ".join(user_facts_semantic or []), USER_FACTS_CHAR_BUDGET)
 
     # 4. Compose sections
+    # Allow callers (e.g., mini-agent pipeline) to override the default system template safely
+    system_block = (system_override.strip() + "\n") if system_override else SYSTEM_TEMPLATE
+
     prompt_parts = [
-        SYSTEM_TEMPLATE,
+        system_block,
         f"State: {state}",
     ]
     if profile_block:

@@ -75,7 +75,6 @@
 
 .section-title {
   padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-alt);
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-dim);

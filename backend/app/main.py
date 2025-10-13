@@ -1,7 +1,15 @@
+import os
+
+# Check SMTP credentials at startup (non-fatal, downgraded to warning and supports MAIL_* vars)
+SMTP_USER = os.getenv("SMTP_USER") or os.getenv("MAIL_USERNAME")
+SMTP_PASS = os.getenv("SMTP_PASS") or os.getenv("MAIL_PASSWORD")
+if not SMTP_USER or not SMTP_PASS:
+    print("WARNING: SMTP credentials not set (MAIL_USERNAME/MAIL_PASSWORD). Email sending will fail until configured.")
 # backend/app/main.py
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
@@ -9,11 +17,14 @@ import asyncio
 
 from app.routers import auth, chat, sessions, feedback, health, debug, metrics as metrics_router
 from app.routers import mini_agent
+from app.routers import assistant as assistant_router
 from app.routers import emotion as emotion_router
 from app.routers import health_extended
 from app.routers import user as user_router
 from app.routers import memories as memories_router
-from app.routers import tasks, profile, dashboard
+from app.routers import annotations as annotations_router
+from app.routers import tasks, profile, dashboard, ops
+from app.routers import youtube as youtube_router
 from app.config import settings
 from app.services import advanced_emotion
 from app.utils.rate_limit import RateLimiter
@@ -33,14 +44,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Pinecone init skipped or timed out: {e}")
 
-    # Asynchronously connect to Neo4j using a short timeout
+    # Neo4j connect with clearer progressive retry (avoid misleading 'timed out' + later 'connected').
     try:
-        await asyncio.wait_for(neo4j_service.connect(), timeout=3.0)
-    except Exception as e:
-        print(f"⚠️ Neo4j connect timed out: {e}")
+        neo4j_timeout = float(os.getenv("NEO4J_STARTUP_TIMEOUT_SECS", "10"))
+    except Exception:
+        neo4j_timeout = 10.0
+    start_ts = asyncio.get_event_loop().time()
+    last_log = 0.0
+    while (asyncio.get_event_loop().time() - start_ts) < neo4j_timeout and not getattr(neo4j_service, '_driver', None):
+        # One retry cycle (neo4j_service.connect itself has internal multi-attempt logic when retries>1)
+        await neo4j_service.connect(retries=1)
+        if getattr(neo4j_service, '_driver', None):
+            break
+        await asyncio.sleep(0.5)
+        elapsed = asyncio.get_event_loop().time() - start_ts
+        if elapsed - last_log > 2.5:
+            remaining = neo4j_timeout - elapsed
+            print(f"⏳ Waiting for Neo4j… (elapsed {elapsed:.1f}s, ~{max(0, remaining):.1f}s left)")
+            last_log = elapsed
+    if not getattr(neo4j_service, '_driver', None):
+        print(f"⚠️ Neo4j not available after {neo4j_timeout:.1f}s – continuing in degraded mode (graph features disabled)")
     
     # Create Mongo indexes early
     try:
+        # Ensure Mongo connects explicitly before creating indexes
+        await asyncio.to_thread(db_client.connect)
         await asyncio.to_thread(db_client.ensure_indexes)
     except Exception:
         pass
@@ -64,14 +92,29 @@ async def lifespan(app: FastAPI):
     await neo4j_service.close()
     if redis_service.redis_client:
         await redis_service.redis_client.close()
-    if db_client and db_client.client:
-        db_client.client.close()
+    if db_client and db_client._client:
+        db_client._client.close()
     print("--- Shutdown complete. ---")
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import logging
 
 app = FastAPI(
     title="Personal AI Assistant API",
     lifespan=lifespan,
 )
+
+# Global error handler to log all exceptions
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logging.error(f"Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)}
+    )
+# Response compression for faster API over network
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # --- CORS Middleware ---
 # Allow configuration via env var CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
@@ -79,18 +122,24 @@ import os, time
 
 raw_origins = os.getenv("CORS_ORIGINS")
 allow_all = os.getenv("CORS_ALLOW_ALL") in {"1", "true", "TRUE"}
+# Always allow localhost:3000 and localhost:8000 for React dev
+default_dev_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+]
 if allow_all:
     origins = ["*"]
 elif raw_origins:
     origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+    for o in default_dev_origins:
+        if o not in origins:
+            origins.append(o)
 else:
-    # Default dev ports; include 3001 for React alt dev server
-    origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ]
+    origins = default_dev_origins.copy()
 
 # If an extra DEV_ORIGINS env is present append them
 extra = os.getenv("DEV_EXTRA_ORIGINS")
@@ -186,8 +235,9 @@ async def _cors_and_logging_mw(request: Request, call_next):
         allowed = response.headers.get("Access-Control-Allow-Origin")
         print(f"[CORS][req] {method} {path} origin={origin} allow={bool(allowed)} status={response.status_code}")
     else:
-        # Lightweight single-line log
-        print(f"REQ {method} {path} origin={origin} -> {response.status_code}")
+        # Lightweight single-line log for non-health endpoints
+        if not path.startswith("/health"):
+            print(f"REQ {method} {path} origin={origin} -> {response.status_code}")
     return response
 
 # --- Global Exception Handlers (standard error envelope) ---
@@ -201,14 +251,31 @@ async def validation_exc_handler(request: Request, exc: RequestValidationError):
     payload = {"error": {"code": 422, "message": "Validation error", "details": exc.errors()}}
     return JSONResponse(status_code=422, content=payload)
 
+# Map common infra RuntimeErrors (e.g., DB not available) to a clearer 503 instead of 500
+@app.exception_handler(RuntimeError)
+async def runtime_exc_handler(request: Request, exc: RuntimeError):
+    msg = str(exc) or "Service unavailable"
+    payload = {"error": {"code": 503, "message": msg}}
+    return JSONResponse(status_code=503, content=payload)
+
 # Generic fallback
 @app.middleware("http")
 async def _wrap_unhandled(request: Request, call_next):
     try:
         return await call_next(request)
+    except HTTPException:
+        # Let FastAPI's HTTPException flow to its handler
+        raise
+    except RuntimeError:
+        # Allow our RuntimeError handler to map to 503
+        raise
     except Exception as e:  # noqa: BLE001
+        # Last-resort safety net
         payload = {"error": {"code": 500, "message": "Internal server error"}}
-        print(f"Unhandled exception at {request.url.path}: {e}")
+        try:
+            print(f"Unhandled exception at {request.url.path}: {e}")
+        except Exception:
+            pass
         return JSONResponse(status_code=500, content=payload)
 
 # Global per-user rate limit (e.g., 120 req/min)
@@ -221,6 +288,8 @@ app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(feedback.router)
 app.include_router(health.router)
+from app.routers.user import public_router
+app.include_router(public_router)
 app.include_router(user_router.router)
 app.include_router(debug.router)
 app.include_router(memories_router.router)
@@ -228,9 +297,13 @@ app.include_router(metrics_router.router)
 app.include_router(health_extended.router)
 app.include_router(emotion_router.router)
 app.include_router(tasks.router)
+app.include_router(ops.router)
 app.include_router(profile.router)
 app.include_router(dashboard.router)
 app.include_router(mini_agent.router)
+app.include_router(annotations_router.router)
+app.include_router(youtube_router.router)
+app.include_router(assistant_router.router)
 
 @app.on_event("startup")
 async def _warm_advanced_emotion():
@@ -265,6 +338,41 @@ async def _final_cors_enforcer(request: Request, call_next):
                 merged = set(h.strip() for h in existing_expose.split(",") if h.strip()) | needed
                 response.headers["Access-Control-Expose-Headers"] = ", ".join(sorted(merged))
     except Exception:  # noqa: BLE001
+        pass
+    return response
+
+# --- Deprecation Header Middleware (non-breaking guidance) ---
+def _is_deprecated_path(path: str) -> tuple[bool, str | None, str | None]:
+    sunset = os.getenv("DEPRECATION_SUNSET", "2025-12-31")
+    # Exact matches
+    if path == "/api/debug/echo":
+        return True, "Endpoint is for internal debugging and will be removed.", sunset
+    if path == "/api/memories":
+        return True, "Use /api/memories/ (trailing slash).", sunset
+    if path == "/api/chat/new/stream":
+        return True, "Use /api/chat/{id}/stream or consolidate on sessions chat.", sunset
+    # Prefix/heuristic matches
+    if path.startswith("/metrics/"):
+        return True, "Use /api/metrics/* endpoints.", sunset
+    if path.startswith("/auth/"):
+        return True, "Legacy route; use /api/auth/*.", sunset
+    if path.startswith("/api/chat/") and path.endswith("/stream"):
+        return True, "Chat streaming path may be consolidated; prefer sessions chat.", sunset
+    if path in {"/api/ops/celery_health_check", "/api/ops/peek_task", "/api/ops/list_recent_tasks"}:
+        return True, "Operational endpoint may be removed or role-gated.", sunset
+    return False, None, None
+
+
+@app.middleware("http")
+async def _deprecation_middleware(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        deprecated, msg, sunset = _is_deprecated_path(request.url.path)
+        if deprecated:
+            response.headers["X-Deprecation"] = msg or "This endpoint is deprecated."
+            if sunset:
+                response.headers.setdefault("X-Deprecation-Sunset", sunset)
+    except Exception:
         pass
     return response
 

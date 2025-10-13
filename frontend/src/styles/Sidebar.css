@@ -1,0 +1,753 @@
+/* =========================
+   Sidebar Base Styles
+   ========================= */
+.sidebar-container {
+  --sidebar-open-width: 260px;
+  --sidebar-closed-width: 70px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: var(--sidebar-open-width);
+  color: #f2f5f9;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 4px 0 18px -4px rgba(0,0,0,0.55);
+  overflow: hidden;
+  z-index: 1000;
+  backdrop-filter: blur(14px) saturate(140%);
+  will-change: width, background;
+  transition: width .3s ease, box-shadow .3s ease, background .5s ease;
+  background: radial-gradient(circle at 20% 18%, rgba(60,110,255,0.18), transparent 60%),
+              radial-gradient(circle at 85% 78%, rgba(76,175,80,0.20), transparent 62%),
+              linear-gradient(145deg,#0f1822,#101b26 42%,#0d141b);
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Theme layers (now driven by CSS vars for easier customization) */
+:root {
+  --sidebar-bg-main: linear-gradient(160deg,#091524,#0f2233 55%,#081018);
+  --sidebar-bg-orb1: radial-gradient(circle at 16% 24%, rgba(120,170,255,0.22), transparent 62%);
+  --sidebar-bg-orb2: radial-gradient(circle at 82% 76%, rgba(90,230,150,0.20), transparent 65%);
+  --sidebar-bg-overlay: linear-gradient(145deg,rgba(255,255,255,0.04),rgba(255,255,255,0));
+}
+
+.sidebar-container.modern-theme {
+  background:
+    var(--sidebar-bg-orb1),
+    var(--sidebar-bg-orb2),
+    var(--sidebar-bg-main);
+}
+
+/* Alternate theme example (apply by adding class alt-theme instead of modern-theme) */
+.sidebar-container.alt-theme {
+  --sidebar-bg-main: linear-gradient(155deg,#1d0f36,#142144 55%,#0b1728);
+  --sidebar-bg-orb1: radial-gradient(circle at 20% 30%, rgba(180,100,255,0.25), transparent 60%);
+  --sidebar-bg-orb2: radial-gradient(circle at 78% 70%, rgba(70,140,255,0.25), transparent 65%);
+  background:
+    var(--sidebar-bg-orb1),
+    var(--sidebar-bg-orb2),
+    var(--sidebar-bg-main);
+}
+
+/* Quick solid minimal variant (apply class minimal-theme) */
+.sidebar-container.minimal-theme {
+  background: linear-gradient(180deg,#101b28,#0b1219 60%,#070d12);
+}
+
+.sidebar-container.desktop.closed { width: var(--sidebar-closed-width); }
+
+/* Mobile slide-in variant uses transform */
+.sidebar-container.mobile { width: var(--sidebar-open-width); transform: translateX(0); transition: transform .32s cubic-bezier(.4,0,.2,1), box-shadow .3s ease; }
+.sidebar-container.mobile.closed { transform: translateX(-110%); box-shadow: none; }
+
+/* =========================
+   Toggle Button
+   ========================= */
+.sidebar-toggle {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 1400;
+  background: #2e2e2e;
+  border: 1px solid #3a3a3a;
+  color: #e5e5e5;
+  padding: 8px 9px;
+  line-height: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+  transition: background .25s ease, transform .25s ease, box-shadow .25s ease;
+}
+.sidebar-toggle:hover { background: #3a3a3a; transform: translateY(-1px); }
+
+/* =========================
+   Label Fade + Slide (desktop collapse)
+   ========================= */
+.sidebar-container.desktop .logo-text,
+.sidebar-container.desktop .task-tabs,
+.sidebar-container.desktop .task-list,
+.sidebar-container.desktop .history-tabs,
+.sidebar-container.desktop .chat-list,
+.sidebar-container.desktop .user-info,
+.sidebar-container.desktop .menu-item span,
+.sidebar-container.desktop .section-header span { opacity:1; transform: translateX(0); transition: opacity .22s ease .05s, transform .25s ease; }
+.sidebar-container.desktop.closed .logo-text,
+.sidebar-container.desktop.closed .task-tabs,
+.sidebar-container.desktop.closed .task-list,
+.sidebar-container.desktop.closed .history-tabs,
+.sidebar-container.desktop.closed .chat-list,
+.sidebar-container.desktop.closed .user-info,
+.sidebar-container.desktop.closed .menu-item span,
+.sidebar-container.desktop.closed .section-header span { opacity:0; transform: translateX(-8px); pointer-events:none; transition-delay:0s; }
+
+/* =========================
+   Mobile Backdrop
+   ========================= */
+.sidebar-backdrop { position: fixed; inset:0; background:rgba(0,0,0,.45); backdrop-filter: blur(2px); z-index:900; animation: fadeIn .25s ease forwards; }
+@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+.sidebar-header,
+.sidebar-content,
+.sidebar-footer {
+  padding: 15px 20px;
+}
+
+.sidebar-logo {
+  margin-left: 55px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  margin-left: 4px;
+  background-color: #ff7f50;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  color: white;
+  font-size: 22px;
+  transition: transform 0.3s ease;
+}
+
+.logo-icon:hover {
+  transform: rotate(15deg);
+}
+
+.logo-text {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.sidebar-content {
+  /* Fallback solid color */
+  background: #2a4a60;
+  /* Layered gradient stack (adds depth & subtle color variation) */
+  background:
+    linear-gradient(150deg, rgba(25,118,210,0.28), rgba(76,175,80,0.18) 58%, rgba(25,118,210,0.24)),
+    radial-gradient(circle at 18% 22%, rgba(255,255,255,0.10), transparent 62%),
+    linear-gradient(185deg, rgba(255,255,255,0.05), rgba(0,0,0,0.55)),
+    #1e2931; /* base */
+  background-blend-mode: overlay, normal, normal, normal;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow: hidden;
+  position: relative;
+  padding: 4px 16px 14px 16px;
+  /* Support for noise overlay (optional) — can be added via pseudo element */
+  backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Scrollable interior wrapper (for lists) */
+.sidebar-content > .scroll-region { flex:1; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:20px; padding-right:4px; }
+.sidebar-content > .scroll-region::-webkit-scrollbar { width:6px; }
+.sidebar-content > .scroll-region::-webkit-scrollbar-track { background:transparent; }
+.sidebar-content > .scroll-region::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:3px; }
+.sidebar-content > .scroll-region::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.22); }
+
+/* Decorative floating orbs */
+.sidebar-content::before, .sidebar-content::after { content:""; position:absolute; width:140px; height:140px; border-radius:50%; filter:blur(40px); opacity:.18; pointer-events:none; animation: floatOrb 14s ease-in-out infinite; }
+.sidebar-content::before { background:linear-gradient(135deg,#1976d2,#4caf50); top: -40px; right:-50px; animation-delay:0s; }
+.sidebar-content::after { background:linear-gradient(135deg,#4caf50,#1976d2); bottom:-55px; left:-55px; animation-delay:5s; }
+@keyframes floatOrb { 0%,100% { transform:translateY(0) scale(1); } 50% { transform:translateY(25px) scale(1.08); } }
+
+/* Section subtle dividers */
+.sidebar-section { position:relative; }
+.sidebar-section:not(:last-child)::after { content:""; position:absolute; bottom:-8px; left:4px; right:4px; height:1px; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent); opacity:.5; }
+
+/* Adapt when collapsed */
+.sidebar-container.closed .sidebar-content { padding:8px 4px 12px 4px; background:linear-gradient(180deg, rgba(255,255,255,0.05), rgba(0,0,0,0.35)); }
+.sidebar-container.closed .sidebar-section:not(:last-child)::after { left:10px; right:10px; opacity:.25; }
+
+/* Mobile optimization */
+@media (max-width: 768px) {
+  .sidebar-content { padding: 8px 18px 18px 18px; mask-image: none; }
+  .sidebar-content::before, .sidebar-content::after { display:none; }
+  .sidebar-content > .scroll-region { gap:24px; }
+}
+
+/* =========================
+   Tasks & History Sections (Enhanced)
+   ========================= */
+/* Section wrapper */
+.sidebar-section { display: flex; flex-direction: column; gap: 10px; }
+
+.section-header { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing:.5px; text-transform: uppercase; color:#d7d7d7; opacity:.9; }
+.section-header.clickable { cursor: pointer; }
+.section-header svg { color: #7bb6ff; }
+.section-header:hover { color:#ffffff; }
+
+/* Collapsible Tasks Enhancements */
+/* Generic collapsible pattern */
+.collapsible { overflow:hidden; display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows .42s cubic-bezier(.4,0,.2,1), opacity .35s ease; }
+.collapsible.open { grid-template-rows:1fr; opacity:1; }
+.collapsible-inner { min-height:0; display:flex; flex-direction:column; gap:10px; padding-top:6px; animation:fadeSlideIn .32s cubic-bezier(.4,0,.2,1); }
+
+/* Backward specific classes (tasks-collapse/history-collapse) still work */
+.tasks-collapse, .history-collapse { overflow:visible; }
+.tasks-collapse.collapsible, .history-collapse.collapsible { overflow:hidden; }
+@keyframes fadeSlideIn { from { opacity:0; transform: translateY(-4px);} to { opacity:1; transform:translateY(0);} }
+
+/* Chevron subtle animation */
+.section-header .chevron { transition: transform .35s ease, opacity .35s ease; opacity:.75; }
+.section-header.open .chevron { transform: rotate(0deg); }
+.section-header.closed .chevron { transform: rotate(-180deg); }
+.section-header .chevron:hover { opacity:1; }
+
+/* When sidebar collapsed hide collapse container entirely */
+.sidebar-container.closed .tasks-collapse { display:none !important; }
+
+/* =====================================================
+   TASKS & HISTORY: Dedicated Styling Hooks
+   Usage: In your JSX/HTML wrap each section with one of:
+     <div class="sidebar-section tasks-section"> ... </div>
+     <div class="sidebar-section history-section"> ... </div>
+   OR add a data attribute:
+     <div class="sidebar-section" data-section="tasks"> ...</div>
+   We also support header-specific classes if only headers can be tagged:
+     <div class="section-header tasks-header">Tasks</div>
+   These layered selectors let you style without refactoring markup heavily.
+   You can theme via CSS variables below.
+===================================================== */
+
+/* Accent variables (scoped so they can be overridden higher up if needed) */
+.sidebar-container {
+  --tasks-accent: #1d82e8; /* Slightly brighter than #1976d2 */
+  --tasks-accent-soft: rgba(29,130,232,0.16);
+  --history-accent: #43b05c; /* Slightly brighter than #4caf50 */
+  --history-accent-soft: rgba(67,176,92,0.18);
+}
+
+/* Shared section wrapper enhancements */
+.tasks-section, .sidebar-section[data-section="tasks"],
+.history-section, .sidebar-section[data-section="history"] {
+  position: relative;
+  padding-top: 2px;
+}
+
+/* Gradient accent stripe (left edge) */
+.tasks-section::before, .sidebar-section[data-section="tasks"]::before,
+.history-section::before, .sidebar-section[data-section="history"]::before {
+  content: "";
+  position: absolute; left: -6px; top: 6px; bottom: 6px; width: 4px;
+  border-radius: 3px;
+  background: linear-gradient(180deg,var(--stripe-start, var(--tasks-accent)),var(--stripe-end, var(--tasks-accent)));
+  opacity: .0; /* fade in on hover/focus for subtlety */
+  transform: translateX(-4px);
+  transition: opacity .35s ease, transform .35s ease;
+  pointer-events: none;
+}
+.tasks-section:hover::before, .sidebar-section[data-section="tasks"]:hover::before,
+.history-section:hover::before, .sidebar-section[data-section="history"]:hover::before {
+  opacity:.55; transform: translateX(0);
+}
+
+/* Distinct stripe colors per section (override vars) */
+.tasks-section::before, .sidebar-section[data-section="tasks"]::before { --stripe-start: var(--tasks-accent); --stripe-end: #155fa9; }
+.history-section::before, .sidebar-section[data-section="history"]::before { --stripe-start: var(--history-accent); --stripe-end: #2f7f42; }
+
+/* Section headers accent ring & pill */
+.tasks-section > .section-header, .sidebar-section[data-section="tasks"] > .section-header,
+.section-header.tasks-header {
+  position: relative;
+  color: #d5eaff;
+}
+.history-section > .section-header, .sidebar-section[data-section="history"] > .section-header,
+.section-header.history-header { color: #d9f9e2; }
+
+/* Animated underline accent */
+.tasks-section > .section-header::after, .sidebar-section[data-section="tasks"] > .section-header::after,
+.section-header.tasks-header::after,
+.history-section > .section-header::after, .sidebar-section[data-section="history"] > .section-header::after,
+.section-header.history-header::after {
+  content: ""; position:absolute; left:0; bottom:-4px; height:2px; width:34px;
+  background: linear-gradient(90deg,var(--underline-start, var(--tasks-accent)),transparent);
+  border-radius:2px; opacity:.7; transform: scaleX(0.65);
+  transform-origin:left; transition: transform .4s cubic-bezier(.4,0,.2,1), opacity .4s ease;
+}
+.tasks-section > .section-header:hover::after, .sidebar-section[data-section="tasks"] > .section-header:hover::after,
+.section-header.tasks-header:hover::after,
+.history-section > .section-header:hover::after, .sidebar-section[data-section="history"] > .section-header:hover::after,
+.section-header.history-header:hover::after { transform: scaleX(1); opacity:1; }
+
+.tasks-section > .section-header::after, .sidebar-section[data-section="tasks"] > .section-header::after,
+.section-header.tasks-header::after { --underline-start: var(--tasks-accent); }
+.history-section > .section-header::after, .sidebar-section[data-section="history"] > .section-header::after,
+.section-header.history-header::after { --underline-start: var(--history-accent); }
+
+/* Tabs contextual highlighting (reuse existing .task-tabs & .history-tabs) */
+.tasks-section .task-tabs, .sidebar-section[data-section="tasks"] .task-tabs { background: linear-gradient(135deg,var(--tasks-accent-soft),rgba(255,255,255,0.05)); }
+.history-section .history-tabs, .sidebar-section[data-section="history"] .history-tabs { background: linear-gradient(135deg,var(--history-accent-soft),rgba(255,255,255,0.05)); }
+
+/* Active tab gradient overrides */
+.tasks-section .task-tab.active { background: linear-gradient(135deg,var(--tasks-accent),#64b5f6); box-shadow:0 4px 14px -4px var(--tasks-accent); }
+.history-section .history-tab.active { background: linear-gradient(135deg,var(--history-accent),#6ddf8b); box-shadow:0 4px 14px -4px var(--history-accent); }
+
+/* List item accent border on hover */
+.tasks-section .task-item:hover { box-shadow:0 0 0 1px var(--tasks-accent-soft), 0 4px 14px -6px rgba(0,0,0,0.4); }
+.history-section .chat-item:hover { box-shadow:0 0 0 1px var(--history-accent-soft), 0 4px 14px -6px rgba(0,0,0,0.4); }
+
+/* Optional counters (add span with class) */
+.task-count, .history-count { display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; padding:2px 6px; border-radius:20px; letter-spacing:.5px; margin-left:6px; backdrop-filter: blur(6px); }
+.task-count { background: linear-gradient(135deg,var(--tasks-accent-soft),rgba(255,255,255,0.06)); color:#e2f3ff; }
+.history-count { background: linear-gradient(135deg,var(--history-accent-soft),rgba(255,255,255,0.06)); color:#e2ffed; }
+
+/* Focus rings contextual */
+.tasks-section .task-tab:focus-visible { outline-color: var(--tasks-accent); }
+.history-section .history-tab:focus-visible { outline-color: var(--history-accent); }
+
+/* Collapsed mode reduce stripe visibility */
+.sidebar-container.closed .tasks-section::before, .sidebar-container.closed .history-section::before, .sidebar-container.closed .sidebar-section[data-section="tasks"]::before, .sidebar-container.closed .sidebar-section[data-section="history"]::before { opacity:0 !important; }
+
+/* Tabs (tasks + history) */
+.task-tabs, .history-tabs { display:flex; gap:6px; background:rgba(255,255,255,0.04); padding:4px; border-radius:10px; position:relative; }
+.task-tab, .history-tab { flex:1; position:relative; font-size:12px; font-weight:500; letter-spacing:.3px; padding:6px 10px; border:none; border-radius:8px; background:transparent; color:#b9c2cc; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; transition:color .25s ease, background .25s ease, transform .25s ease; }
+.task-tab:hover, .history-tab:hover { color:#ffffff; background:rgba(255,255,255,0.07); }
+.task-tab.active, .history-tab.active { color:#ffffff; background: linear-gradient(135deg,#1976d2,#4caf50); box-shadow:0 4px 14px -4px rgba(25,118,210,0.55); }
+.history-tab svg { width:14px; height:14px; }
+
+/* ---- Animated sliding indicator for tabs (modern browsers supporting :has) ---- */
+.task-tabs::before, .history-tabs::before { content:""; position:absolute; top:4px; bottom:4px; width:calc(50% - 4px); border-radius:8px; background:linear-gradient(135deg,rgba(25,118,210,0.55),rgba(76,175,80,0.55)); backdrop-filter: blur(4px); opacity:0; transform:translateX(0); transition: transform .38s cubic-bezier(.4,0,.2,1), opacity .25s ease; pointer-events:none; }
+.task-tabs:has(.task-tab.active)::before, .history-tabs:has(.history-tab.active)::before { opacity:1; }
+/* Move slider depending on which tab is active */
+.task-tabs:has(.task-tab:nth-child(2).active)::before { transform:translateX(100%); }
+.history-tabs:has(.history-tab:nth-child(2).active)::before { transform:translateX(100%); }
+/* Ensure active tab text stays above */
+.task-tab, .history-tab { position:relative; z-index:1; }
+
+/* Fallback (older browsers) already covered by .active background. */
+
+/* Task list (with outer scroll wrapper) */
+.task-scroll { max-height:190px; overflow-y:auto; padding-right:4px; scrollbar-width: thin; mask-image: linear-gradient(to bottom, black 85%, transparent 100%); }
+.task-list { display:flex; flex-direction:column; gap:6px; padding:4px 2px 2px 2px; }
+.task-list.two-col { 
+  display:grid; 
+  grid-template-columns: repeat(auto-fill, minmax(118px,1fr)); 
+  gap:8px 8px; 
+  padding:6px 2px 4px 2px; 
+}
+.task-list.two-col .task-item { flex-direction:row; align-items:flex-start; }
+.task-list.two-col .task-item span { font-size:12px; }
+.sidebar-container.closed .task-list.two-col { display:none; }
+.task-item { display:flex; align-items:flex-start; gap:8px; background:linear-gradient(145deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02)); padding:8px 10px 12px 10px; border-radius:12px; position:relative; border:1px solid rgba(255,255,255,0.06); transition:background .28s ease, border-color .28s ease, transform .28s ease, box-shadow .28s ease; box-shadow:0 4px 10px -6px rgba(0,0,0,0.55); }
+.task-item.pending { border-left:3px solid rgba(25,118,210,0.55); }
+.task-item.completed { border-left:3px solid rgba(76,175,80,0.55); }
+.task-item:hover { background:linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04)); border-color:rgba(255,255,255,0.16); transform:translateY(-3px); box-shadow:0 10px 26px -10px rgba(0,0,0,0.66); }
+.task-checkbox { width:16px; height:16px; margin-top:2px; accent-color:#1976d2; cursor:pointer; }
+.task-completed { text-decoration: line-through; opacity:.55; }
+.task-item span { font-size:13px; line-height:1.3; color:#e6e6e6; }
+
+/* Animated appearance for new tasks */
+.task-item { animation: taskEnter .4s cubic-bezier(.4,0,.2,1); }
+@keyframes taskEnter { 0% { opacity:0; transform:translateY(6px) scale(.97); } 60% { opacity:1; transform:translateY(-1px) scale(1.01); } 100% { opacity:1; transform:translateY(0) scale(1); } }
+
+/* Custom checkbox styling (progress ring) */
+.task-checkbox { appearance:none; position:relative; border:2px solid #4da3ff; border-radius:5px; background:rgba(255,255,255,0.08); width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; transition: background .3s ease, border-color .3s ease, transform .3s ease; }
+.task-checkbox::after { content:""; width:9px; height:9px; border-radius:2px; background:linear-gradient(135deg,#1976d2,#4caf50); transform:scale(0) rotate(10deg); transition: transform .35s cubic-bezier(.4,0,.2,1); box-shadow:0 0 0 2px rgba(255,255,255,0.15) inset; }
+.task-checkbox:checked { border-color:#4caf50; background:rgba(76,175,80,0.15); }
+.task-checkbox:checked::after { transform:scale(1) rotate(0); }
+.task-checkbox:active { transform:scale(.85); }
+.task-item:hover .task-checkbox:not(:checked) { border-color:#82c4ff; }
+
+/* Completed task fancy strike-through */
+.task-completed { position:relative; color:#b7c0c9; }
+.task-completed::after { content:""; position:absolute; left:0; right:0; top:50%; height:1.5px; background:linear-gradient(90deg,transparent,#ffffff,#ffffff,transparent); opacity:.7; transform:scaleX(0); transform-origin:left; animation: strike .45s ease forwards; }
+@keyframes strike { to { transform:scaleX(1); } }
+
+/* Shine effect on hover */
+.task-item::before { content:""; position:absolute; inset:0; background:linear-gradient(120deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0.08) 55%,rgba(255,255,255,0) 100%); transform:translateX(-60%); opacity:0; pointer-events:none; }
+.task-item:hover::before { animation: shine 1.1s ease; }
+@keyframes shine { 0% { transform:translateX(-60%); opacity:0; } 30% { opacity:1; } 70% { opacity:1; } 100% { transform:translateX(60%); opacity:0; } }
+
+/* Micro drag affordance placeholder (future drag handle) */
+.task-item::after { content:""; width:4px; height:60%; border-radius:2px; background:linear-gradient(180deg,#1976d2,#4caf50); position:absolute; left:0; top:20%; opacity:0; transition:opacity .3s ease, transform .3s ease; transform:translateX(-4px); }
+.task-item:hover::after { opacity:.6; transform:translateX(-2px); }
+
+.task-scroll::-webkit-scrollbar { width:6px; }
+.task-scroll::-webkit-scrollbar-track { background:transparent; }
+.task-scroll::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:3px; }
+.task-scroll::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.25); }
+
+/* Chat history list (with outer scroll wrapper) */
+.history-scroll { max-height:240px; overflow-y:auto; padding-right:4px; mask-image: linear-gradient(to bottom, black 85%, transparent 100%); }
+.chat-list { display:flex; flex-direction:column; gap:6px; padding:4px 2px 2px 2px; }
+.chat-item { background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02)); padding:10px 12px 30px 12px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); cursor:pointer; display:flex; flex-direction:column; gap:6px; position:relative; transition:background .3s ease, border-color .3s ease, transform .3s ease, box-shadow .3s ease; overflow:hidden; }
+.chat-item:hover { background:linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03)); border-color:rgba(255,255,255,0.18); transform:translateY(-2px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55); }
+.chat-item:active { transform:translateY(0); }
+.chat-item.hover-actions .chat-actions { position:absolute; left:10px; right:10px; bottom:4px; display:flex; justify-content:flex-end; gap:4px; opacity:0; pointer-events:none; transition:opacity .25s ease, transform .3s ease; transform:translateY(4px); }
+.chat-item.hover-actions:hover .chat-actions { opacity:1; pointer-events:auto; transform:translateY(0); }
+.chat-item.hover-actions .chat-actions .icon-btn { background:rgba(255,255,255,0.05); padding:4px; border:1px solid rgba(255,255,255,0.06); }
+.chat-item.hover-actions .chat-actions .icon-btn.tiny { padding:2px; width:22px; height:22px; border-radius:6px; }
+.chat-item.hover-actions .chat-actions .icon-btn.tiny svg { width:14px; height:14px; }
+.chat-item.hover-actions .chat-actions .icon-btn:hover { background:linear-gradient(135deg,rgba(25,118,210,0.25),rgba(76,175,80,0.25)); }
+.chat-title { font-size:13px; font-weight:600; color:#f8f9fa; letter-spacing:.3px; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chat-timestamp { font-size:11px; color:#94a0ab; font-weight:500; }
+.chat-empty, .chat-loading, .chat-error { font-size:12px; text-align:center; padding:12px 8px; border-radius:10px; }
+.chat-loading { color:#90caf9; animation: pulseText 1.2s ease-in-out infinite; }
+.chat-empty { color:#a0aab4; }
+.chat-error { color:#ff8a80; background:rgba(255,138,128,0.08); border:1px solid rgba(255,138,128,0.25); }
+@keyframes pulseText { 0%,100%{opacity:.55;} 50%{opacity:1;} }
+
+/* User profile footer */
+.user-profile { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,0.04); cursor:pointer; position:relative; transition:background .25s ease, box-shadow .25s ease; }
+.user-profile:hover { background:rgba(255,255,255,0.08); }
+.user-avatar { width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#1976d2,#4caf50); display:flex; align-items:center; justify-content:center; font-weight:600; font-size:15px; letter-spacing:.5px; box-shadow:0 4px 14px -4px rgba(25,118,210,.6); }
+.user-info { display:flex; flex-direction:column; gap:2px; }
+.user-name { font-size:13px; font-weight:600; letter-spacing:.4px; color:#f1f1f1; }
+.user-email { font-size:11px; opacity:.55; }
+
+/* User dropdown menu */
+.user-menu { margin-top:10px; display:flex; flex-direction:column; background:rgba(25,25,25,0.9); border:1px solid rgba(255,255,255,0.08); padding:8px; border-radius:14px; box-shadow:0 10px 30px -6px rgba(0,0,0,0.65); backdrop-filter: blur(20px); animation: flyDown .28s cubic-bezier(.4,0,.2,1); }
+.menu-item { background:transparent; border:none; color:#d5d5d5; font-size:13px; font-weight:500; padding:8px 10px; border-radius:10px; display:flex; align-items:center; gap:10px; cursor:pointer; letter-spacing:.3px; transition:background .22s ease, color .22s ease, transform .22s ease; text-align:left; }
+.menu-item:hover { background:linear-gradient(135deg,rgba(25,118,210,0.3),rgba(76,175,80,0.25)); color:#ffffff; transform:translateX(3px); }
+.menu-item.logout { color:#ff8a80; }
+.menu-item.logout:hover { background:rgba(255,138,128,0.12); color:#ffb3aa; }
+.menu-divider { height:1px; width:100%; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent); margin:6px 0; }
+@keyframes flyDown { from { opacity:0; transform:translateY(-6px) scale(.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+
+/* Scrollbars unify */
+.chat-list::-webkit-scrollbar { width:6px; }
+.chat-list::-webkit-scrollbar-track { background:transparent; }
+.chat-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:3px; }
+.chat-list::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.25); }
+
+/* Accent focus states */
+.task-tab:focus-visible, .history-tab:focus-visible, .menu-item:focus-visible, .task-checkbox:focus-visible, .chat-item:focus-visible { outline:2px solid #1976d2; outline-offset:2px; }
+
+/* Compact (collapsed) sidebar adjustments - keep icons centered */
+.sidebar-container.closed .task-tabs, .sidebar-container.closed .history-tabs, .sidebar-container.closed .task-list, .sidebar-container.closed .chat-list, .sidebar-container.closed .user-info, .sidebar-container.closed .section-header span { display:none !important; }
+.sidebar-container.closed .section-header { justify-content:center; }
+.sidebar-container.closed .chat-item { text-align:center; }
+
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  background: #3a3a3a;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.new-chat-btn:hover {
+  background: #4b4b4b;
+  transform: scale(1.03);
+}
+
+/* Other reused styles (sections, tasks, history, footer) — keep your existing ones */
+
+/* Chat layout helper classes (applied to a wrapper outside) */
+.chat-shell.with-sidebar-open {
+  margin-left: var(--sidebar-open-width,260px);
+  width: calc(100% - var(--sidebar-open-width,260px));
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+.chat-shell.with-sidebar-closed {
+  margin-left: var(--sidebar-closed-width,70px);
+  width: calc(100% - var(--sidebar-closed-width,70px));
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+.chat-shell.full-width {
+  margin-left: 0;
+  width: 100%;
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+
+/* Mobile overrides */
+@media (max-width: 768px) {
+  .sidebar-toggle {
+    left: 10px;
+    top: 10px;
+  }
+  .sidebar-container.desktop { display: none; }
+  .chat-shell.with-sidebar-open,
+  .chat-shell.with-sidebar-closed {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* =====================================================
+   EXTENDED INTERACTIVE ENHANCEMENTS (Non-invasive)
+   ===================================================== */
+/* Inline task actions */
+.task-item { position:relative; padding-right:42px; }
+.task-item.is-pinned { box-shadow:0 0 0 1px rgba(255,255,255,0.18), 0 4px 14px -6px rgba(25,118,210,0.4); }
+.task-item .task-main { display:flex; align-items:flex-start; gap:8px; flex:1; min-width:0; }
+.task-inline-actions { position:absolute; top:4px; right:6px; display:flex; gap:4px; opacity:0; transition:opacity .25s ease, transform .25s ease; transform:translateY(-2px); }
+.task-item:hover .task-inline-actions { opacity:1; transform:translateY(0); }
+.task-menu-btn { width:24px; height:24px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.07); border:none; border-radius:6px; color:#d2d7dd; cursor:pointer; padding:0; transition:background .25s ease, color .25s ease, transform .25s ease; }
+.task-menu-btn:hover { background:rgba(255,255,255,0.14); color:#fff; transform:translateY(-2px); }
+
+/* Chat list row + options menu */
+.chat-item { position:relative; }
+.chat-item.is-pinned { box-shadow:0 0 0 1px rgba(255,255,255,0.18), 0 4px 14px -6px rgba(25,118,210,0.4); }
+.chat-row { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.chat-options-btn { background:rgba(255,255,255,0.07); border:none; border-radius:8px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:#cfd4d9; transition:background .25s ease, color .25s ease, transform .25s ease; }
+.chat-options-btn:hover { background:rgba(255,255,255,0.14); color:#fff; transform:translateY(-2px); }
+.chat-options-menu { position:absolute; top:6px; right:6px; background:rgba(22,28,36,0.95); backdrop-filter: blur(18px); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:6px; display:flex; flex-direction:column; gap:2px; z-index:30; min-width:150px; animation: fadeScale .18s ease; box-shadow:0 14px 38px -10px rgba(0,0,0,0.6); }
+.chat-options-menu button { background:transparent; border:none; color:#d3d8dc; text-align:left; font-size:12px; display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background .25s ease, color .25s ease, transform .25s ease; }
+.chat-options-menu button:hover { background:linear-gradient(135deg,rgba(25,118,210,0.3),rgba(76,175,80,0.25)); color:#fff; transform:translateX(3px); }
+.chat-options-menu button.danger { color:#ff8a80; }
+.chat-options-menu button.danger:hover { background:rgba(255,138,128,0.18); color:#ffc1ba; }
+@keyframes fadeScale { from { opacity:0; transform:translateY(4px) scale(.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+
+/* Modals */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.65); backdrop-filter: blur(6px); z-index:1200; display:flex; align-items:center; justify-content:center; animation: fadeInModal .2s ease; padding:20px; }
+.modal { background:linear-gradient(135deg,rgba(30,37,46,0.95),rgba(22,29,36,0.92)); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:20px 22px 18px; width:100%; max-width:420px; box-shadow:0 18px 48px -12px rgba(0,0,0,0.55); display:flex; flex-direction:column; gap:16px; animation: popIn .28s cubic-bezier(.4,0,.2,1); }
+.modal.small { max-width:360px; }
+.modal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.modal-header h4 { margin:0; font-size:16px; font-weight:600; letter-spacing:.5px; color:#f5f7fa; }
+.modal-close { background:rgba(255,255,255,0.08); border:none; width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:#d0d5da; transition:background .25s ease, color .25s ease, transform .25s ease; }
+.modal-close:hover { background:rgba(255,255,255,0.16); color:#fff; transform:rotate(90deg); }
+.modal p { margin:0; font-size:13px; line-height:1.5; color:#cfd5db; }
+.modal-input { width:100%; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#f2f6fa; padding:10px 12px; font-size:14px; border-radius:10px; outline:none; font-family:inherit; transition:border-color .25s ease, background .25s ease; }
+.modal-input:focus { border-color:#1976d2; background:rgba(255,255,255,0.1); }
+.modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:4px; }
+.btn-secondary, .btn-primary, .btn-danger { font-size:13px; font-weight:500; letter-spacing:.4px; border:none; border-radius:9px; cursor:pointer; padding:8px 16px; display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,0.08); color:#e4e9ef; transition:background .25s ease, color .25s ease, transform .25s ease, box-shadow .25s ease; }
+.btn-secondary:hover { background:rgba(255,255,255,0.16); }
+.btn-primary { background:linear-gradient(135deg,#1976d2,#4caf50); box-shadow:0 6px 18px -6px rgba(25,118,210,0.6); }
+.btn-primary:hover { filter:brightness(1.08); }
+.btn-danger { background:rgba(255,104,104,0.18); color:#ffb4b4; }
+.btn-danger:hover { background:rgba(255,104,104,0.28); color:#ffe0e0; }
+.btn-primary:disabled { opacity:.55; cursor:not-allowed; filter:none; }
+@keyframes popIn { 0% { opacity:0; transform:translateY(14px) scale(.96); } 60% { opacity:1; transform:translateY(-2px) scale(1.01); } 100% { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes fadeInModal { from { opacity:0; } to { opacity:1; } }
+
+/* Accessibility focus */
+.modal button:focus-visible, .modal-input:focus-visible, .chat-options-menu button:focus-visible, .task-menu-btn:focus-visible { outline:2px solid #1976d2; outline-offset:2px; }
+
+@media (max-width: 560px) {
+  .modal { max-width:100%; padding:18px 18px 16px; }
+  .chat-options-menu { right:4px; }
+}
+
+/* =========================
+   Extra controls: task actions & history popovers + modals
+   ========================= */
+
+/* Small icon button used in lists */
+.icon-btn {
+  background: transparent;
+  border: none;
+  padding: 6px;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .18s ease, transform .12s ease;
+  color: #cbd6df;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.03); transform: translateY(-2px); color: #fff; }
+.icon-btn.danger { color: #ffb3aa; }
+.icon-btn.danger:hover { background: rgba(255,138,128,0.08); }
+
+/* Put actions to the right of task items */
+.task-item { position: relative; display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.task-item > span { flex: 1; display:block; padding-right: 8px; }
+
+/* container for action buttons */
+.task-actions { display:flex; align-items:center; gap:4px; margin-left:auto; position:absolute; left:10px; right:10px; bottom:4px; padding-top:6px; opacity:0; pointer-events:none; transition:opacity .25s ease, transform .28s ease; transform:translateY(4px); justify-content:flex-end; }
+.task-item:hover .task-actions { opacity:1; pointer-events:auto; transform:translateY(0); }
+.task-actions .icon-btn { background:rgba(255,255,255,0.05); padding:4px; margin-left:0; border:1px solid rgba(255,255,255,0.06); }
+.task-actions .icon-btn.tiny { padding:2px; width:22px; height:22px; border-radius:6px; }
+.task-actions .icon-btn.tiny svg { width:14px; height:14px; }
+.task-actions .icon-btn:hover { background:linear-gradient(135deg,rgba(25,118,210,0.25),rgba(76,175,80,0.25)); }
+.task-item { padding-bottom:30px; }
+.task-item .task-checkbox { margin-top:1px; }
+
+/* Slightly reduce icon size in collapsed mode for neatness */
+.sidebar-container.closed .icon-btn { padding: 6px; }
+
+/* Removed popover menu now using inline hover actions for history items */
+
+/* pinned tag small badge */
+.chat-item.pinned { border-left: 3px solid rgba(25,118,210,0.8); }
+
+/* =========================
+   New History Panel Card Styles (mirrors task cards but unified tabs)
+   ========================= */
+.history-tab-panel { animation: fadeSlideIn .35s cubic-bezier(.4,0,.2,1); }
+.history-list { display:flex; flex-direction:column; gap:8px; padding:6px 2px 10px 2px; }
+.history-item { position:relative; display:flex; flex-direction:column; gap:4px; background:linear-gradient(145deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.06); padding:8px 10px; border-radius:12px; cursor:pointer; transition: background .28s ease, border-color .28s ease, transform .28s ease, box-shadow .28s ease; box-shadow:0 4px 10px -6px rgba(0,0,0,0.55); width:100%; box-sizing:border-box; }
+.history-item:hover { background:linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,255,255,0.035)); border-color:rgba(255,255,255,0.16); transform:translateY(-3px); box-shadow:0 10px 26px -10px rgba(0,0,0,0.66); }
+.history-item.active { border:1px solid rgba(76,175,80,0.55); box-shadow:0 0 0 1px rgba(76,175,80,0.35), 0 6px 18px -8px rgba(76,175,80,0.45); background:linear-gradient(150deg,rgba(76,175,80,0.18),rgba(255,255,255,0.04)); position:relative; }
+.history-item.active::after { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; background:radial-gradient(circle at 85% 18%, rgba(76,175,80,0.25), transparent 60%); animation: activePulse 4s ease-in-out infinite; }
+@keyframes activePulse { 0%,100% { opacity:.55; transform:scale(1);} 50% { opacity:.85; transform:scale(1.01);} }
+.history-item.pinned { border-left:3px solid var(--history-accent); }
+.history-item-actions .icon-btn[title='Unpin'] svg { transform:rotate(35deg); transition:transform .25s ease; }
+.history-item-actions .icon-btn[title='Unpin']:hover svg { transform:rotate(55deg); }
+.history-item.saved { border-left:3px solid #6ddf8b; }
+.history-main-row { display:flex; align-items:stretch; gap:10px; position:relative; }
+.history-icon { width:22px; height:22px; border-radius:7px; background:linear-gradient(135deg,var(--history-accent),#6ddf8b); display:flex; align-items:center; justify-content:center; font-size:13px; box-shadow:0 4px 10px -4px rgba(67,176,92,0.55); flex-shrink:0; }
+.history-text { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.history-title { font-size:12.5px; font-weight:600; color:#f5f8fa; letter-spacing:.3px; line-height:1.2; white-space:normal; overflow-wrap: anywhere; }
+.history-meta { font-size:10px; color:#95a4af; font-weight:500; }
+/* Inline hover action buttons for history items */
+.history-item { padding-bottom:30px; }
+.history-item-actions { position:absolute; left:10px; right:10px; bottom:4px; display:flex; justify-content:flex-end; gap:4px; opacity:0; pointer-events:none; transform:translateY(4px); transition: opacity .25s ease, transform .25s ease; }
+.history-item:hover .history-item-actions, .history-item:focus-within .history-item-actions { opacity:1; pointer-events:auto; transform:translateY(0); }
+.history-item-actions .icon-btn { background:rgba(255,255,255,0.05); padding:4px; border:1px solid rgba(255,255,255,0.06); }
+.history-item-actions .icon-btn.tiny { padding:2px; width:22px; height:22px; border-radius:6px; }
+.history-item-actions .icon-btn.tiny svg { width:14px; height:14px; }
+.history-item-actions .icon-btn:hover { background:linear-gradient(135deg,rgba(25,118,210,0.25),rgba(76,175,80,0.25)); }
+.history-item-actions .icon-btn.active-pin { background:linear-gradient(135deg,rgba(67,176,92,0.35),rgba(25,118,210,0.25)); border:1px solid rgba(67,176,92,0.55); box-shadow:0 0 0 1px rgba(67,176,92,0.4), 0 4px 14px -6px rgba(67,176,92,0.5); }
+.history-item-actions .icon-btn.active-pin:hover { filter:brightness(1.1); }
+.history-item-menu button { background:transparent; border:none; color:#d5dbe0; font-size:12px; display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; letter-spacing:.3px; transition: background .25s ease, color .25s ease, transform .25s ease; text-align:left; }
+.history-item-menu button:hover { background:linear-gradient(135deg,rgba(25,118,210,0.3),rgba(76,175,80,0.28)); color:#fff; transform:translateX(3px); }
+.history-item-menu button.danger { color:#ff8a80; }
+.history-item-menu button.danger:hover { background:rgba(255,138,128,0.18); color:#ffc1ba; }
+
+/* Shine & glow similar to tasks */
+.history-item::before { content:""; position:absolute; inset:0; background:linear-gradient(120deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0.07) 55%,rgba(255,255,255,0) 100%); transform:translateX(-60%); opacity:0; pointer-events:none; }
+.history-item:hover::before { animation: shine 1.15s ease; }
+
+/* Responsive stacking for tabs on very small widths */
+@media (max-width:520px) {
+  .history-tabs { flex-wrap:wrap; }
+  .task-tabs { flex-wrap:wrap; }
+  .history-tab, .task-tab { flex:1 1 120px; }
+}
+
+/* Smaller screens: reduce padding and font size */
+@media (max-width:420px) {
+  .history-item { padding:8px 10px; }
+  .history-title { font-size:12.5px; }
+  .history-meta { font-size:10px; }
+}
+
+/* Accessibility focus */
+.history-item:focus-visible { outline:2px solid var(--history-accent); outline-offset:2px; }
+
+/* Support a potential grid (match tasks two-col look on wide sidebar) */
+.history-list.two-col-match { /* reserved for future adaptive columns; currently single column */ min-height:0; }
+
+/* Compact history tabs (reduce padding) */
+.history-section .history-tabs { padding:2px; gap:4px; }
+.history-section .history-tab { padding:4px 6px; font-size:11px; border-radius:7px; }
+
+/* Prevent horizontal overflow */
+.history-scroll { overflow-x:hidden; }
+
+
+
+/* =========================
+   Overlay modal (confirmations & rename)
+   ========================= */
+.overlay-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 24px;
+  animation: overlayIn .12s ease;
+}
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  width: min(520px, 94%);
+  background: linear-gradient(180deg, rgba(25,25,25,0.98), rgba(15,15,15,0.98));
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.7);
+  color: #e6eef6;
+  animation: modalPop .14s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes modalPop { from { transform: translateY(6px) scale(.995); opacity:0 } to { transform: translateY(0) scale(1); opacity:1 } }
+
+.modal-head { display:flex; gap:10px; align-items:center; justify-content:space-between; }
+.modal-head h3 { margin:0; font-size:15px; font-weight:600; color:#f4f6f9; display:flex; gap:10px; align-items:center; }
+.modal-close { background:transparent; border:none; color:#cfd8df; padding:6px; border-radius:8px; cursor:pointer; }
+.modal-body { padding: 12px 2px; font-size:14px; color:#c8d1d9; line-height:1.4; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; padding-top:6px; }
+
+.btn { padding: 8px 12px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
+.btn-ghost { background: transparent; color:#d1d6db; border:1px solid rgba(255,255,255,0.04); }
+.btn-danger { background: linear-gradient(90deg,#ff8a80,#ff6b6b); color:white; box-shadow: 0 6px 18px rgba(255,90,90,0.12); }
+.btn-primary { background: linear-gradient(135deg,#1976d2,#4caf50); color:white; box-shadow: 0 8px 20px rgba(25,118,210,0.12); }
+
+.rename-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  color: #f3f6f9;
+  font-size: 14px;
+}
+
+/* Responsive adjustments for modal on very small screens */
+@media (max-width:420px) {
+  .modal-card { width: 96%; padding: 12px; }
+  .modal-head h3 { font-size: 14px; }
+  .modal-actions { gap:8px; }
+}
+
+/* tiny helper for spacing when popovers are near bottom */
+/* obsolete popover height helper removed */
+
+/* Accessibility focus styles for newly added buttons */
+.icon-btn:focus-visible, .history-options-popover .menu-item.small:focus-visible, .btn:focus-visible {
+  outline: 2px solid rgba(25,118,210,0.9);
+  outline-offset: 2px;
+}
+
+/* keep modals & popovers above everything else */
+.overlay-modal { z-index: 2200 !important; }
+
+/* Ensure sidebar content never exceeds width */
+.sidebar-container .sidebar-content, .sidebar-section, .task-item, .chat-item, .task-tabs, .history-tabs { max-width:100%; box-sizing:border-box; }
+.sidebar-container { box-sizing:border-box; }
+
+/* Better wrapping for long titles */
+.task-item span, .chat-title { word-break:break-word; overflow-wrap: anywhere; }
+
+/* Compact adjustments for two-col grid on very narrow widths */
+@media (max-width: 480px) {
+  .task-list.two-col { grid-template-columns: repeat(auto-fill,minmax(100px,1fr)); }
+}

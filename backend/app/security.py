@@ -106,3 +106,12 @@ async def get_current_active_user(
     user.setdefault("user_id", user_id_str)
     user.setdefault("userId", user_id_str)
     return user
+
+
+async def get_current_user_id(
+    current_user: dict = Depends(get_current_active_user)
+) -> str:
+    """
+    Dependency to get the ID of the current active user.
+    """
+    return str(current_user["_id"])

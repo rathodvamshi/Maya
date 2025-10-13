@@ -1,0 +1,1870 @@
+{
+  "backend_endpoints": {
+    "routers": [
+      {
+        "file": "backend\\app\\routers\\annotations.py",
+        "prefix_map": {
+          "router": "/api/annotations"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "PATCH",
+            "path": "/api/annotations/sessions/{session_id}/messages/{message_id}"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/annotations/sessions/{session_id}/messages/{message_id}"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\auth.py",
+        "prefix_map": {
+          "router": "/api/auth",
+          "legacy_router": "/auth"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/signup"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/register"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/login"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/send-otp"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/auth/email-available"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/verify-otp"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/complete-registration"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/auth/update-password"
+          },
+          {
+            "var": "legacy_router",
+            "method": "POST",
+            "path": "/auth/register"
+          },
+          {
+            "var": "legacy_router",
+            "method": "GET",
+            "path": "/auth/email-available"
+          },
+          {
+            "var": "legacy_router",
+            "method": "POST",
+            "path": "/auth/login"
+          },
+          {
+            "var": "legacy_router",
+            "method": "POST",
+            "path": "/auth/update-password"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\chat.py",
+        "prefix_map": {
+          "router": "/api/chat"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/video/control"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/new"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/{session_id}/continue"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/new/stream"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/{session_id}"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/{session_id}/stream"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/tasks"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/chat/tasks/{task_id}"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/chat/tasks/{task_id}/done"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/chat/tasks"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/chat/tasks/history"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/chat/history"
+          },
+          {
+            "var": "router",
+            "method": "DELETE",
+            "path": "/api/chat/history/clear"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/chat/{session_id}/history"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/chat/{session_id}/feedback"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\dashboard.py",
+        "prefix_map": {
+          "router": "/api/dashboard"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/dashboard/stats"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/dashboard/quick-stats"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/dashboard/productivity-trends"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/dashboard/upcoming-tasks"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\debug.py",
+        "prefix_map": {
+          "router": "/api/debug"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/debug/preferences/{user_id}"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/debug/metrics"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/debug/echo"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\emotion.py",
+        "prefix_map": {
+          "router": "/api/emotion"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/emotion/analyze"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\feedback.py",
+        "prefix_map": {
+          "router": "/api/feedback"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/feedback/"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/feedback/correction"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\health.py",
+        "prefix_map": {
+          "router": "/health"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/health/"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\health_extended.py",
+        "prefix_map": {
+          "router": "/health"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/health/full"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\memories.py",
+        "prefix_map": {
+          "router": "/api/memories"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/create"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/{memory_id}"
+          },
+          {
+            "var": "router",
+            "method": "PATCH",
+            "path": "/api/memories/{memory_id}"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/{memory_id}/confirm"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/recall_events"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/recall_events/{event_id}/feedback"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/recall_events/histogram"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/analytics/overview"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/analytics/dashboard"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/distillation/candidates"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/distillation/run"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/{memory_id}/lineage"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/memories/pii_audit"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/{memory_id}/restore"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/reembed"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/memories/export"
+          },
+          {
+            "var": "router",
+            "method": "DELETE",
+            "path": "/api/memories/{user_id}"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\metrics.py",
+        "prefix_map": {
+          "router": "/metrics",
+          "api_router": "/api/metrics"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/metrics/hedge"
+          },
+          {
+            "var": "api_router",
+            "method": "GET",
+            "path": "/api/metrics/hedge"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/metrics/all"
+          },
+          {
+            "var": "api_router",
+            "method": "GET",
+            "path": "/api/metrics/all"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\mini_agent.py",
+        "prefix_map": {
+          "router": "/api/mini-agent"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/mini-agent/threads/ensure"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/mini-agent/by-message/{message_id}"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/mini-agent/threads/{thread_id}/snippets/add"
+          },
+          {
+            "var": "router",
+            "method": "PATCH",
+            "path": "/api/mini-agent/threads/{thread_id}/snippets/{snippet_id}"
+          },
+          {
+            "var": "router",
+            "method": "DELETE",
+            "path": "/api/mini-agent/threads/{thread_id}/snippets/{snippet_id}"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/mini-agent/threads/{thread_id}"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/mini-agent/threads/{thread_id}/messages"
+          },
+          {
+            "var": "router",
+            "method": "PATCH",
+            "path": "/api/mini-agent/threads/{thread_id}/ui"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/mini-agent/threads/{thread_id}/messages/stream"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/mini-agent/highlights"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/mini-agent/highlights"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/mini-agent/threads/{thread_id}/summarize"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\ops.py",
+        "prefix_map": {
+          "router": "/api/ops"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/ops/list_scheduled_tasks"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/ops/celery_health_check"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/ops/health"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/ops/revoke"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/ops/celery_inspect"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/ops/peek_task"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/ops/list_recent_tasks"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\profile.py",
+        "prefix_map": {
+          "router": "/api/profile"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/profile/"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/profile/"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/profile/avatar"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/profile/stats"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/profile/api-keys"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/profile/api-keys"
+          },
+          {
+            "var": "router",
+            "method": "DELETE",
+            "path": "/api/profile/api-keys/{key_id}"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/profile/activity"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/profile/security"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\reminders.py",
+        "prefix_map": {},
+        "endpoints": []
+      },
+      {
+        "file": "backend\\app\\routers\\sessions.py",
+        "prefix_map": {
+          "router": "/api/sessions"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/sessions/new"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/sessions/"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/sessions/"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/sessions/{session_id}"
+          },
+          {
+            "var": "router",
+            "method": "DELETE",
+            "path": "/api/sessions/{session_id}"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/sessions/{session_id}/history"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/sessions/{session_id}/title"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/sessions/{session_id}/pin"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/sessions/{session_id}/save"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/sessions/{session_id}/generate-title"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/sessions/{session_id}/chat"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\tasks.py",
+        "prefix_map": {
+          "router": "/api/tasks"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/tasks/"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/tasks"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/tasks/"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/tasks"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/tasks/{task_id}"
+          },
+          {
+            "var": "router",
+            "method": "PUT",
+            "path": "/api/tasks/{task_id}"
+          },
+          {
+            "var": "router",
+            "method": "DELETE",
+            "path": "/api/tasks/{task_id}"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/tasks/bulk"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/tasks/stats/summary"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/tasks/stats/priority"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/tasks/tags"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\user.py",
+        "prefix_map": {
+          "router": "/api/user"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/user/onboarding-questions"
+          },
+          {
+            "var": "router",
+            "method": "POST",
+            "path": "/api/user/onboarding"
+          }
+        ]
+      },
+      {
+        "file": "backend\\app\\routers\\youtube.py",
+        "prefix_map": {
+          "router": "/api/youtube"
+        },
+        "endpoints": [
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/youtube/search"
+          },
+          {
+            "var": "router",
+            "method": "GET",
+            "path": "/api/youtube/related"
+          }
+        ]
+      }
+    ]
+  },
+  "frontend_calls": [
+    {
+      "file": "frontend\\src\\components\\ChatWindowNew.js",
+      "method": "GET",
+      "path": "/youtube/search"
+    },
+    {
+      "file": "frontend\\src\\components\\ChatWindowNew.js",
+      "method": "GET",
+      "path": "/youtube/search"
+    },
+    {
+      "file": "frontend\\src\\components\\ChatWindowNew.js",
+      "method": "GET",
+      "path": "/youtube/related"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/chat/new"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/sessions/new"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/sessions/${sid}/chat"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "DELETE",
+      "path": "/sessions/${sid}"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/chat/${sessionId}/continue"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/sessions/${sessionId}/chat"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/chat/new"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "GET",
+      "path": "/chat/history"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "DELETE",
+      "path": "/chat/history/clear"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "GET",
+      "path": "/sessions/"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "DELETE",
+      "path": "/sessions/${sessionId}"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "PUT",
+      "path": "/sessions/${sessionId}/title"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "PUT",
+      "path": "/sessions/${sessionId}/pin"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "PUT",
+      "path": "/sessions/${sessionId}/save"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/sessions/${sessionId}/generate-title"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "GET",
+      "path": "/chat/tasks"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "GET",
+      "path": "/chat/tasks/history"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/chat/tasks"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "PUT",
+      "path": "/chat/tasks/${taskId}"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "PUT",
+      "path": "/chat/tasks/${taskId}/done"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/feedback/"
+    },
+    {
+      "file": "frontend\\src\\services\\chatService.js",
+      "method": "POST",
+      "path": "/feedback/correction"
+    },
+    {
+      "file": "frontend\\src\\services\\dashboardService.js",
+      "method": "GET",
+      "path": "/dashboard/stats"
+    },
+    {
+      "file": "frontend\\src\\services\\dashboardService.js",
+      "method": "GET",
+      "path": "/dashboard/quick-stats"
+    },
+    {
+      "file": "frontend\\src\\services\\dashboardService.js",
+      "method": "GET",
+      "path": "/dashboard/productivity-trends?days=${days}"
+    },
+    {
+      "file": "frontend\\src\\services\\dashboardService.js",
+      "method": "GET",
+      "path": "/dashboard/upcoming-tasks?limit=${limit}"
+    },
+    {
+      "file": "frontend\\src\\services\\feedbackService.js",
+      "method": "POST",
+      "path": "/feedback/"
+    },
+    {
+      "file": "frontend\\src\\services\\forgotPassword.js",
+      "method": "POST",
+      "path": "/auth/send-otp"
+    },
+    {
+      "file": "frontend\\src\\services\\forgotPassword.js",
+      "method": "POST",
+      "path": "/auth/verify-otp"
+    },
+    {
+      "file": "frontend\\src\\services\\forgotPassword.js",
+      "method": "POST",
+      "path": "/auth/update-password"
+    },
+    {
+      "file": "frontend\\src\\services\\highlightService.js",
+      "method": "PATCH",
+      "path": "/annotations/sessions/${sessionId}/messages/${messageId}"
+    },
+    {
+      "file": "frontend\\src\\services\\highlightService.js",
+      "method": "GET",
+      "path": "/annotations/sessions/${sessionId}/messages/${messageId}"
+    },
+    {
+      "file": "frontend\\src\\services\\opsService.js",
+      "method": "GET",
+      "path": "/ops/health"
+    },
+    {
+      "file": "frontend\\src\\services\\opsService.js",
+      "method": "GET",
+      "path": "/ops/list_scheduled_tasks"
+    },
+    {
+      "file": "frontend\\src\\services\\opsService.js",
+      "method": "POST",
+      "path": "/ops/revoke"
+    },
+    {
+      "file": "frontend\\src\\services\\opsService.js",
+      "method": "GET",
+      "path": "/ops/celery_inspect"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "GET",
+      "path": "/profile/"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "PUT",
+      "path": "/profile/"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "POST",
+      "path": "/profile/avatar"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "GET",
+      "path": "/profile/stats"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "GET",
+      "path": "/profile/api-keys"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "POST",
+      "path": "/profile/api-keys"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "DELETE",
+      "path": "/profile/api-keys/${keyId}"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "GET",
+      "path": "/profile/activity?limit=${limit}&offset=${offset}"
+    },
+    {
+      "file": "frontend\\src\\services\\profileService.js",
+      "method": "GET",
+      "path": "/profile/security?limit=${limit}&offset=${offset}"
+    },
+    {
+      "file": "frontend\\src\\services\\sessionService.js",
+      "method": "GET",
+      "path": "/sessions/"
+    },
+    {
+      "file": "frontend\\src\\services\\sessionService.js",
+      "method": "POST",
+      "path": "/sessions/"
+    },
+    {
+      "file": "frontend\\src\\services\\sessionService.js",
+      "method": "POST",
+      "path": "/sessions/new"
+    },
+    {
+      "file": "frontend\\src\\services\\sessionService.js",
+      "method": "DELETE",
+      "path": "/sessions/${sessionId}"
+    },
+    {
+      "file": "frontend\\src\\services\\signup.js",
+      "method": "POST",
+      "path": "/auth/send-otp"
+    },
+    {
+      "file": "frontend\\src\\services\\signup.js",
+      "method": "POST",
+      "path": "/auth/verify-otp"
+    },
+    {
+      "file": "frontend\\src\\services\\signup.js",
+      "method": "POST",
+      "path": "/auth/complete-registration"
+    },
+    {
+      "file": "frontend\\src\\services\\signup.js",
+      "method": "GET",
+      "path": "/auth/email-available"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "GET",
+      "path": "/tasks?${params.toString()}"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "POST",
+      "path": "/tasks"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "GET",
+      "path": "/tasks/${taskId}"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "PUT",
+      "path": "/tasks/${taskId}"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "DELETE",
+      "path": "/tasks/${taskId}"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "POST",
+      "path": "/tasks/bulk"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "GET",
+      "path": "/tasks/stats/summary"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "GET",
+      "path": "/tasks/stats/priority"
+    },
+    {
+      "file": "frontend\\src\\services\\taskService.js",
+      "method": "GET",
+      "path": "/tasks/tags"
+    },
+    {
+      "file": "frontend\\src\\services\\videoControlsService.js",
+      "method": "POST",
+      "path": "/chat/video/control"
+    },
+    {
+      "file": "frontend\\src\\services\\youtubeService.js",
+      "method": "GET",
+      "path": "/youtube/search"
+    }
+  ],
+  "unknown_frontend_calls": [],
+  "unused_endpoints": [
+    {
+      "method": "DELETE",
+      "path": "/api/memories/{}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mini-agent/threads/{}/snippets/{}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/{}/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/debug/echo"
+    },
+    {
+      "method": "GET",
+      "path": "/api/debug/metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/debug/preferences/{}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/analytics/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/analytics/overview"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/distillation/candidates"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/pii_audit"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/recall_events"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/recall_events/histogram"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/{}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories/{}/lineage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/metrics/all"
+    },
+    {
+      "method": "GET",
+      "path": "/api/metrics/hedge"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mini-agent/by-message/{}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mini-agent/highlights"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mini-agent/threads/{}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mini-agent/threads/{}/messages/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ops/celery_health_check"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ops/list_recent_tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ops/peek_task"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{}/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/user/onboarding-questions"
+    },
+    {
+      "method": "GET",
+      "path": "/auth/email-available"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memories/{}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/mini-agent/threads/{}/snippets/{}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/mini-agent/threads/{}/ui"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/signup"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/new/stream"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/{}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/{}/feedback"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/{}/stream"
+    },
+    {
+      "method": "POST",
+      "path": "/api/emotion/analyze"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/create"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/distillation/run"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/export"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/recall_events/{}/feedback"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/reembed"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/{}/confirm"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/{}/restore"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-agent/highlights"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-agent/threads/ensure"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-agent/threads/{}/messages"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-agent/threads/{}/snippets/add"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mini-agent/threads/{}/summarize"
+    },
+    {
+      "method": "POST",
+      "path": "/api/user/onboarding"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/update-password"
+    }
+  ],
+  "duplicates_count": 329,
+  "duplicates": {
+    "7fb749fa90437551504b5fb4a39e76a26eafd084": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\models.py#L314",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\models.py#L331"
+    ],
+    "43b3953dc2c4e2f2e83e63abb9f0c25128749df7": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\models.py#L379",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\models.py#L397"
+    ],
+    "0fd99907d147272c8652edb4a7c15b52f17a76a9": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L55",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L194"
+    ],
+    "9724c2a6ac6152ba9693c55931b929e9f1480392": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L78",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L288"
+    ],
+    "718464242781ec70bf013fd5cd8b04e2131a545b": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L79",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L289"
+    ],
+    "5d6825cf40b25259366cf1f005a6bea6a5f59cc9": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L80",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L290"
+    ],
+    "d308a5b67899b0bf2d36858e2c1e862b4382d4a4": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L81",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L291"
+    ],
+    "c1b617b8e1a1fd43430c79a3a2ddf472efbcfcdf": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L82",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L292"
+    ],
+    "cd541ab71e195f8b8062587aa3802b2be9c2c300": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L83",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L293"
+    ],
+    "0a25942d1359e897728cad6cd282379b85b4c938": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L96",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L311"
+    ],
+    "30272ee043b0b2867eaf0fc7bf9688e27751aecd": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L97",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L312"
+    ],
+    "dca24a1682bdcbc03b85659fb27fcb206a10b39c": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L98",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L313"
+    ],
+    "25f41862c9a2c5e7bd0f9aeb1d477bddf940454e": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L99",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L314"
+    ],
+    "925d355bf95291887a3ec542ed69682d3c7db11d": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L100",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L315"
+    ],
+    "388ca7214dc2e76441d44ccc8dd83faf849cdc20": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L101",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\auth.py#L316"
+    ],
+    "573f9444cfd30399606b84c84f149840503dda12": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L54",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\sessions.py#L35"
+    ],
+    "26fc633802a861048af77049e7a88e4a1c481551": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L55",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\sessions.py#L36"
+    ],
+    "47d4ed6b38988ad33780a3e1ae2f5d999f47582f": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L56",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\sessions.py#L37"
+    ],
+    "ab5edb1003cf33d6da73f909680fabd1abf63d64": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L57",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\sessions.py#L38"
+    ],
+    "8b372139b699ca32c48cdba359849c92a140acc3": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L58",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\sessions.py#L39"
+    ],
+    "90b647054b8902d119903a4e88af9a0ce09406a2": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L237",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L252"
+    ],
+    "7bf1536a6cbf40d7c3660a43f0340a05c117df29": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L238",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L253"
+    ],
+    "b7999508f7bb3a9f4eb3cf3265e4cc6b2d10fd50": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L239",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L254"
+    ],
+    "cd7455bf8fd104c16dd105afa3be594525c1a412": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L590",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L78"
+    ],
+    "cbc63a51876f7f4b0e5c68e14068df0d0c8eb447": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L591",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L79"
+    ],
+    "bf9005d60f884c0879ae85afc6b30bbf9a678e9c": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L592",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L80"
+    ],
+    "496deca35c16fa46beada73b3f49fdbf725ef6f2": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L593",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L81"
+    ],
+    "3be1566619b420aac0b586babd8b81362e6cc6fc": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L594",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L82"
+    ],
+    "85b75d607a5bed47e54221eccd06aff3eaad328f": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L595",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L83"
+    ],
+    "f006bc00947b5c46d0f4884a23145b308fdfe39d": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L596",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L84"
+    ],
+    "1641fde704c8779500358c1de40953f0796312c1": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L597",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\youtube.py#L85"
+    ],
+    "654bf18857b0def20eb9049522dc51646f21dbbd": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L899",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1286"
+    ],
+    "98eada8c1e9cc07df2e1e704faf5b854532d1027": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L900",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1287"
+    ],
+    "c80a302977fb6399ba54242cb328a0fecbc2688c": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L901",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1288"
+    ],
+    "ab37997c38f2a2e84dc1e672a4921fe168c52d68": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L902",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1289"
+    ],
+    "92aece5323cefb85ddd71a35ede816141c2e69ce": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L954",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1101"
+    ],
+    "166f5883a9b7976cb922feca8cf5017176988e86": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L955",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1102"
+    ],
+    "a5d5d4fa85b2e6ec3868d6dd98a33ed92a3b9279": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1051",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1210"
+    ],
+    "b52dd9600d3a1a48decb1ffcf3b53a8d666c4380": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1052",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1211"
+    ],
+    "7653ee2f31ae690261265dad3d989b5e6f89f6e2": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1098",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1373"
+    ],
+    "c52d18c3d810641559a1282b16be874434840739": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1318",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1546",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1699"
+    ],
+    "0e4a1a90f0618c1c8631aa96db053f16b2c67c5b": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1326",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1571"
+    ],
+    "978a8864a8bef7e475e6d9e72803a4f9d3e10cc3": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1327",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1572"
+    ],
+    "6774c0d6d65d179d07adab4fe8653a4a3f8d03d8": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1328",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1573"
+    ],
+    "eeb414bc3dcf5835b70e8696a5f29dd4a7632fef": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1329",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1574"
+    ],
+    "f83acc24f03ec598e7967c4f0059c2cb05716fd3": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1350",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1556",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1671"
+    ],
+    "a132937b5ba8708638b8c4e9091bd24151cdf315": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1351",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1557",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1672"
+    ],
+    "4817fd8c89d3725e2f5c59c1e6b0d54e7ee923eb": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1352",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1558",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1673"
+    ],
+    "52dfc84c4b9d7dd3e581e7dec48173389db14689": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1353",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1559",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1674"
+    ],
+    "4e8e92ca14e562eccb1aeb1195d1ede7062a7913": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1354",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1560",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1675"
+    ],
+    "82ee827b0ba3b384eeef928955789cee2c51839a": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1355",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1561",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1676"
+    ],
+    "531e8432ec9443364f0b20c31aaaa6959d666315": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1356",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1562",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1677"
+    ],
+    "cc4c9313bbab1f75c60d58b6c022100b96edccb0": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1357",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1563",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1678"
+    ],
+    "5e9b7eb6920e236fc561fbf508663e8b74207ef1": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1358",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1564",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1679"
+    ],
+    "bf9bb9cda1b64ab3ed0823194596d82f0b3b3559": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1359",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1565",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1680"
+    ],
+    "819bd48daf40010c9c34bab1ac1b27eae217ca32": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1374",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1599"
+    ],
+    "4a1fe3fbb23aca62bf4cb78c8a468b6563b1fb5c": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1375",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1600"
+    ],
+    "7f0e43d3ed31c562e0b168dc4ec67c0b298e0bcd": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1387",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1608"
+    ],
+    "1e735f2d578114254c3a9b0213b770c444b67885": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1388",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1609"
+    ],
+    "e44005f2973a8ba60dd8881fb3038b44e5157088": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1389",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1610"
+    ],
+    "c8876fe43e008b71a43c550b84a924401aa17944": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1390",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1611"
+    ],
+    "9655714781ba380df9126ba7c03088c5c96052be": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1397",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1617"
+    ],
+    "6bcd81cd5f33bce126168856f87438632d9a776f": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1398",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1618"
+    ],
+    "985f101a82ef1b3ae898bc2d0620363129093c67": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1399",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1619"
+    ],
+    "1368967b43d693d3fbee3a8cb4fd1261db28f3cb": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1406",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1625"
+    ],
+    "eed56c915b5318953a3049d17e8484768b44e3a9": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1407",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1626"
+    ],
+    "932d47a370288a6ed442bf72307903faaccb20c0": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1408",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1627"
+    ],
+    "0d24561fbca29e3c9b00a8176cb4645835468512": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1409",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1628"
+    ],
+    "a416719c9344b264516b980ed91dcf2487898d95": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1410",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1629"
+    ],
+    "df1e8374820d0b8952fa54ae51d88684e3fc4ea3": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1417",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1635"
+    ],
+    "4151b828c79f3461436f1e24af56073e9a755f65": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1418",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1636"
+    ],
+    "7617ccae7c03706d35ac391639292c7b3248f405": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1500",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1658"
+    ],
+    "a506eeaa7add20a36f80863d8e87b3aeb0866541": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1501",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1659"
+    ],
+    "7450e1351e2cebca51ad2fc24955cfe7c29069a4": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1502",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1660"
+    ],
+    "1a37657d3f5756986b75b9bd0819d608ff0cae31": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1503",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1661"
+    ],
+    "4c53daf47c5318a00f558b7f6e2a5f23c0a2f254": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1504",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1662"
+    ],
+    "a92ac3274fae42eba1cf4cd6c7504e7c83849ec0": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1537",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1690"
+    ],
+    "bd08ecfcf2f199b3057b633b22670a7d22c459a3": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1538",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1691"
+    ],
+    "8b95c150ef0507313e41cf9e86d70fe6b2527f98": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1539",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1692"
+    ],
+    "544ef7543777a86b29717db2deacd7d6fad6519a": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1547",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1700"
+    ],
+    "210c22117e336ae937a4d7044b8f6d1ff98457c1": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1548",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1701"
+    ],
+    "b43c41435bfb08d472bc804720508ebcece22454": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1549",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1702"
+    ],
+    "a1e18f232569caf1a83f000344642b7baeed026c": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1759",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1777"
+    ],
+    "d5d3ccce94f43a3b2d8bbd0b292634e870ecaa8b": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1760",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\chat.py#L1778"
+    ],
+    "d5034f93d470ea8979311c1490d4829952cca608": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L73",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L191"
+    ],
+    "28c3c2eb98f83d97bd4ae0f3a5e6da6114112eae": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L74",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L192"
+    ],
+    "be939ba850fb9b2bb09898265f950242e0737283": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L75",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L193"
+    ],
+    "ae0aa428a916ecc4a4c7f0edf0f5e1cf94d63e5f": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L76",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L194"
+    ],
+    "7b081218e97411ca1f3e5d75be4f29cc3568c4b8": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L77",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L195"
+    ],
+    "34bc0b41ac97fd1bfd1634908b09cf1502d5091f": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L78",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L196"
+    ],
+    "b64f0608fa9a0fd40fe6ff7e2ddf85b4a7469695": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L79",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L197"
+    ],
+    "57261ca0b3c3bb189e5d8d061a19a925f9f87f50": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L80",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L198"
+    ],
+    "a871a347b3ab68b86f6a64f2fc9cf29b115a22eb": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L81",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L199"
+    ],
+    "e62a43d2d88c0894b96496247c901fd737ee92e5": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L82",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L200"
+    ],
+    "14e7722f0f1ead4b5594631ea7e7010d3fa1409b": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L83",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L201"
+    ],
+    "fd62debf5782d711e5e9709aa635df0982363aa5": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L84",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L202"
+    ],
+    "597757479d56b6f72fc40568d50041a8ee150691": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L104",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L216"
+    ],
+    "e1e96356cb63745063d031fedbbe9961d52d8702": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L105",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L217"
+    ],
+    "dabbed9d6b5a1c02e7ee2a92c51d6df6b200db1d": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L106",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L218"
+    ],
+    "fec756129f8a0347590df638afda329205d25bb2": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\dashboard.py#L107",
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\app\\routers\\profile.py#L219"
+    ]
+  },
+  "comment_strip": {},
+  "temp_and_caches": {
+    "files": [
+      "C:\\Users\\vamsh\\Source\\3_1\\project_ps2\\maya\\Project-Maya2\\backend\\celerybeat-schedule.bak"
+    ],
+    "dirs": []
+  },
+  "python_dependencies": {
+    "duplicates": [],
+    "unversioned": [
+      "passlib[bcrypt]",
+      "python-jose[cryptography]",
+      "pydantic",
+      "email-validator",
+      "pydantic-settings",
+      "python-multipart",
+      "celery[redis]",
+      "redis",
+      "python-dotenv",
+      "google-generativeai",
+      "cohere",
+      "anthropic",
+      "dateparser",
+      "python-dateutil",
+      "pytest-asyncio",
+      "PyYAML",
+      "prometheus-client"
+    ],
+    "entries": [
+      "fastapi",
+      "uvicorn",
+      "pymongo==4.8.0",
+      "passlib[bcrypt]",
+      "bcrypt==3.2.0",
+      "python-jose[cryptography]",
+      "pydantic",
+      "email-validator",
+      "pydantic-settings",
+      "python-multipart",
+      "celery[redis]",
+      "redis",
+      "pinecone-client>=3.0.0,<4.0.0",
+      "python-dotenv",
+      "httpx>=0.24",
+      "google-generativeai",
+      "cohere",
+      "anthropic",
+      "eventlet>=0.33",
+      "neo4j>=5.14",
+      "dateparser",
+      "python-dateutil",
+      "spacy>=3.7",
+      "pytest",
+      "pytest-asyncio",
+      "PyYAML",
+      "prometheus-client",
+      "bleach>=6.1.0"
+    ],
+    "unused_suspects": [
+      "bcrypt",
+      "email-validator",
+      "python-multipart",
+      "python-dotenv",
+      "python-dateutil",
+      "pytest-asyncio",
+      "pyyaml"
+    ],
+    "missing_suspects": [
+      "__future__",
+      "argparse",
+      "asyncio",
+      "base64",
+      "bson",
+      "certifi",
+      "collections",
+      "contextlib",
+      "dataclasses",
+      "datetime",
+      "difflib",
+      "email",
+      "enum",
+      "functools",
+      "hashlib",
+      "importlib",
+      "io",
+      "json",
+      "logging",
+      "math",
+      "openai",
+      "os",
+      "pathlib",
+      "random",
+      "re",
+      "requests",
+      "secrets",
+      "smtplib",
+      "starlette",
+      "statistics",
+      "sys",
+      "textwrap",
+      "threading",
+      "time",
+      "types",
+      "typing",
+      "uuid",
+      "yaml",
+      "zoneinfo"
+    ]
+  },
+  "frontend_dependencies": {
+    "declared": {
+      "@testing-library/dom": "^10.4.1",
+      "@testing-library/jest-dom": "^6.7.0",
+      "@testing-library/react": "^16.3.0",
+      "@testing-library/user-event": "^13.5.0",
+      "axios": "^1.11.0",
+      "bootstrap-icons": "^1.13.1",
+      "framer-motion": "^12.23.22",
+      "lucide-react": "^0.544.0",
+      "react": "^19.1.1",
+      "react-dom": "^19.1.1",
+      "react-router-dom": "^7.8.1",
+      "react-scripts": "5.0.1",
+      "web-vitals": "^2.1.4",
+      "@tailwindcss/postcss": "^4.1.13",
+      "autoprefixer": "^10.4.21",
+      "postcss": "^8.5.6",
+      "tailwindcss": "^4.1.13"
+    },
+    "unused_suspects": [
+      "@tailwindcss/postcss",
+      "@testing-library/dom",
+      "@testing-library/jest-dom",
+      "@testing-library/react",
+      "@testing-library/user-event",
+      "autoprefixer",
+      "bootstrap-icons",
+      "postcss",
+      "react-scripts",
+      "tailwindcss",
+      "web-vitals"
+    ],
+    "missing_suspects": [
+      "eslint-plugin-react-hooks",
+      "eslint-plugin-react-refresh",
+      "globals",
+      "lovable-tagger",
+      "path",
+      "prop-types",
+      "typescript-eslint",
+      "vite"
+    ]
+  },
+  "applied": true
+}

@@ -15,12 +15,14 @@ import logging
 import hashlib
 
 from app.config import settings
+from pathlib import Path
 from app.memory import session_memory
 from app.services import metrics
 
 logger = logging.getLogger(__name__)
 
-_PERSONA_YAML_PATH = "backend/config/persona_responses.yml"
+# Resolve YAML path relative to repository structure regardless of CWD
+_PERSONA_YAML_PATH = str(Path(__file__).resolve().parents[2] / "config" / "persona_responses.yml")
 _TEMPLATE_CACHE: Dict[str, Dict] = {}
 _TEMPLATE_MTIME: float | None = None
 _CACHE_TTL = 30  # seconds

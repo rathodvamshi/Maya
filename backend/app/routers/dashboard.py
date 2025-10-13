@@ -36,16 +36,29 @@ async def get_dashboard_stats(
         raise HTTPException(status_code=401, detail="Invalid user context")
     
     # Get user statistics
-    user_stats = await get_user_statistics(user_id, tasks_collection, sessions_collection)
+    try:
+        user_stats = await get_user_statistics(user_id, tasks_collection, sessions_collection)
+    except Exception:
+        # Defensive default to avoid 500s on aggregation errors
+        user_stats = UserStats()
     
     # Get recent activity (last 10 items)
-    recent_activity = await get_recent_activity(user_id, activity_collection, limit=10)
+    try:
+        recent_activity = await get_recent_activity(user_id, activity_collection, limit=10)
+    except Exception:
+        recent_activity = []
     
     # Get recent chats (last 5 sessions)
-    recent_chats = await get_recent_chats(user_id, sessions_collection, limit=5)
+    try:
+        recent_chats = await get_recent_chats(user_id, sessions_collection, limit=5)
+    except Exception:
+        recent_chats = []
     
     # Get task summary
-    task_summary = await get_task_summary(user_id, tasks_collection)
+    try:
+        task_summary = await get_task_summary(user_id, tasks_collection)
+    except Exception:
+        task_summary = {"todo": 0, "in_progress": 0, "done": 0, "cancelled": 0, "overdue": 0}
     
     return DashboardStats(
         user_stats=user_stats,
@@ -74,14 +87,20 @@ async def get_user_statistics(user_id: str, tasks_collection: Collection, sessio
     total_tasks = task_result[0]["total_tasks"] if task_result else 0
     completed_tasks = task_result[0]["completed_tasks"] if task_result else 0
     
-    # Get session stats
+    # Get session stats — support both string and ObjectId types for userId
+    match = {"$or": [{"userId": user_id}]}
+    from bson import ObjectId
+    if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+        match["$or"].append({"userId": ObjectId(user_id)})
+
     session_stats = sessions_collection.aggregate([
-        {"$match": {"userId": user_id}},  # Note: sessions use userId not user_id
+        {"$match": match},  # Note: sessions use userId not user_id
         {
             "$group": {
                 "_id": None,
                 "total_chats": {"$sum": 1},
-                "total_messages": {"$sum": {"$size": "$messages"}},
+                # Guard against missing messages field
+                "total_messages": {"$sum": {"$cond": [{"$isArray": "$messages"}, {"$size": "$messages"}, 0]}},
                 "active_sessions": {
                     "$sum": {
                         "$cond": [
@@ -131,8 +150,13 @@ async def get_recent_activity(user_id: str, activity_collection: Collection, lim
 async def get_recent_chats(user_id: str, sessions_collection: Collection, limit: int = 5) -> List[SessionPublic]:
     """Get recent chat sessions."""
     
+    from bson import ObjectId
+    user_match = {"$or": [{"userId": user_id}]}
+    if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+        user_match["$or"].append({"userId": ObjectId(user_id)})
+
     sessions = sessions_collection.find({
-        "userId": user_id,
+        **user_match,
         "$or": [
             {"isArchived": {"$ne": True}},
             {"isArchived": {"$exists": False}}
@@ -150,10 +174,10 @@ async def get_recent_chats(user_id: str, sessions_collection: Collection, limit:
                     break
         
         session_public = SessionPublic(
-            id=str(session_doc["_id"]),
+            id=str(session_doc.get("_id")),
             title=session_doc.get("title", "Untitled Chat"),
-            createdAt=session_doc.get("createdAt", datetime.utcnow()),
-            lastUpdatedAt=session_doc.get("lastUpdatedAt", datetime.utcnow()),
+            created_at=session_doc.get("createdAt", datetime.utcnow()),
+            last_updated_at=session_doc.get("lastUpdatedAt", session_doc.get("updatedAt", datetime.utcnow())),
             message_count=len(session_doc.get("messages", [])),
             preview=preview
         )
@@ -241,10 +265,16 @@ async def get_quick_stats(
             "completed_at": {"$gte": today_start, "$lt": today_end}
         })
         
-        # Active chat sessions
+        # Active chat sessions — support both string and ObjectId userId types
+        from bson import ObjectId
+        uid_or = [{"userId": user_id}]
+        if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+            uid_or.append({"userId": ObjectId(user_id)})
         active_sessions = sessions_collection.count_documents({
-            "userId": user_id,
-            "updatedAt": {"$gte": datetime.utcnow() - timedelta(hours=24)}
+            "$and": [
+                {"$or": uid_or},
+                {"updatedAt": {"$gte": datetime.utcnow() - timedelta(hours=24)}}
+            ]
         })
         
         # Total pending tasks

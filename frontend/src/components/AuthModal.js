@@ -1,3 +1,6 @@
+
+// Yes. It provides the modal UI for sign in and sign up, handling form validation, calling authService to log in/register, and showing social login buttons.
+
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -12,6 +15,8 @@ import {
     Facebook,
     Apple
 } from 'lucide-react';
+import RegisterNew from './RegisterNew';
+import ForgotPasswordEmbed from './ForgotPasswordEmbed';
 import authService from '../services/auth';
 import '../styles/AuthModal.css';
 
@@ -36,6 +41,16 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess, initialMode = 'signin' }) =
         password: false,
         confirmPassword: false
     });
+
+    // Compact password criteria (no height jump)
+    const passwordMeetsAll = (() => {
+        const pw = formData.password || '';
+        const lengthOK = pw.length >= 8;
+        const upperOK = /[A-Z]/.test(pw);
+        const numberOK = /\d/.test(pw);
+        const specialOK = /[^A-Za-z0-9]/.test(pw);
+        return lengthOK && upperOK && numberOK && specialOK;
+    })();
 
     // Validation functions
     const validateEmail = (email) => {
@@ -124,7 +139,8 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess, initialMode = 'signin' }) =
             }
         } catch (error) {
             console.error('Auth error:', error);
-            setMessage(error.response?.data?.detail || 'An error occurred. Please try again.');
+            const apiMsg = error.response?.data?.error?.message || error.response?.data?.detail;
+            setMessage(apiMsg || 'An error occurred. Please try again.');
             setMessageType('error');
         } finally {
             setIsLoading(false);
@@ -148,6 +164,10 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess, initialMode = 'signin' }) =
         // Implement social login logic here
     };
 
+    const handleForgotPassword = () => {
+        setActiveTab('forgot');
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -163,15 +183,10 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess, initialMode = 'signin' }) =
                 >
                     <motion.div
                         className="auth-modal-container"
-                        initial={{ opacity: 0, scale: 0.8, y: 50 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.8, y: 50 }}
-                        transition={{ 
-                            duration: 0.5, 
-                            type: "spring", 
-                            stiffness: 100, 
-                            damping: 15 
-                        }}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 20 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
                     >
                         {/* Close Button */}
                         <button
@@ -184,11 +199,18 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess, initialMode = 'signin' }) =
 
                         {/* Header */}
                         <div className="auth-modal-header">
-                            <h2 className="auth-modal-title">Welcome Back</h2>
-                            <p className="auth-modal-subtitle">Hey buddy, Please enter your details</p>
+                            <h2 className="auth-modal-title">{
+                                activeTab === 'signin' ? 'Welcome Back' : activeTab === 'signup' ? 'Create Account' : 'Reset Password'
+                            }</h2>
+                            <p className="auth-modal-subtitle">
+                                {activeTab === 'signin' && 'Hey buddy, Please enter your details'}
+                                {activeTab === 'signup' && 'Hey buddy, Please enter your details to get started'}
+                                {activeTab === 'forgot' && 'We\'ll send a 4-digit OTP to your email to verify it'}
+                            </p>
                         </div>
 
                         {/* Tab Switcher */}
+                        {activeTab !== 'forgot' && (
                         <div className="auth-tabs">
                             <button
                                 className={`auth-tab ${activeTab === 'signin' ? 'active' : ''}`}
@@ -203,151 +225,167 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess, initialMode = 'signin' }) =
                                 Sign Up
                             </button>
                         </div>
+                        )}
 
-                        {/* Form */}
-                        <form onSubmit={handleSubmit} className="auth-form">
-                            {activeTab === 'signup' && (
+                        {/* Form / Embedded Multi-step Signup & Forgot with smooth slide */}
+                        <div className="auth-tab-panels">
+                        <AnimatePresence mode="wait" initial={false}>
+                        {activeTab === 'signin' ? (
+                            <motion.form
+                                key="signin"
+                                onSubmit={handleSubmit}
+                                className="auth-form"
+                                initial={{ x: -20, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                exit={{ x: 20, opacity: 0 }}
+                                transition={{ duration: 0.25, ease: 'easeOut' }}
+                            >
                                 <div className="auth-input-group">
                                     <div className="auth-input-wrapper">
-                                        <User className="auth-input-icon" size={18} />
+                                        <Mail className="auth-input-icon" size={18} />
                                         <input
-                                            type="text"
-                                            name="name"
-                                            value={formData.name}
+                                            type="email"
+                                            name="email"
+                                            value={formData.email}
                                             onChange={handleInputChange}
-                                            placeholder="Full Name"
+                                            placeholder="Email"
+                                            autoComplete="username"
                                             className="auth-input"
                                             required
                                         />
-                                        {fieldValidation.name && (
+                                        {fieldValidation.email && (
                                             <CheckCircle className="auth-validation-icon" size={18} />
                                         )}
                                     </div>
                                 </div>
-                            )}
-
-                            <div className="auth-input-group">
-                                <div className="auth-input-wrapper">
-                                    <Mail className="auth-input-icon" size={18} />
-                                    <input
-                                        type="email"
-                                        name="email"
-                                        value={formData.email}
-                                        onChange={handleInputChange}
-                                        placeholder="Email"
-                                        className="auth-input"
-                                        required
-                                    />
-                                    {fieldValidation.email && (
-                                        <CheckCircle className="auth-validation-icon" size={18} />
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="auth-input-group">
-                                <div className="auth-input-wrapper">
-                                    <Lock className="auth-input-icon" size={18} />
-                                    <input
-                                        type={showPassword ? "text" : "password"}
-                                        name="password"
-                                        value={formData.password}
-                                        onChange={handleInputChange}
-                                        placeholder="Password"
-                                        className="auth-input"
-                                        required
-                                    />
-                                    <button
-                                        type="button"
-                                        className="auth-password-toggle"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                    >
-                                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
-                                    {fieldValidation.password && (
-                                        <CheckCircle className="auth-validation-icon" size={18} />
-                                    )}
-                                </div>
-                            </div>
-
-                            {activeTab === 'signup' && (
                                 <div className="auth-input-group">
                                     <div className="auth-input-wrapper">
                                         <Lock className="auth-input-icon" size={18} />
                                         <input
-                                            type={showConfirmPassword ? "text" : "password"}
-                                            name="confirmPassword"
-                                            value={formData.confirmPassword}
+                                            type={showPassword ? "text" : "password"}
+                                            name="password"
+                                            value={formData.password}
                                             onChange={handleInputChange}
-                                            placeholder="Confirm Password"
+                                            placeholder="Password"
+                                            autoComplete="current-password"
                                             className="auth-input"
                                             required
                                         />
                                         <button
                                             type="button"
                                             className="auth-password-toggle"
-                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            onClick={() => setShowPassword(!showPassword)}
                                         >
-                                            {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                         </button>
-                                        {fieldValidation.confirmPassword && (
+                                        {fieldValidation.password && (
                                             <CheckCircle className="auth-validation-icon" size={18} />
                                         )}
                                     </div>
+                                    {formData.password && (
+                                        <div className={`password-criteria ${passwordMeetsAll ? 'ok' : ''}`}>
+                                            Meets all criteria: 8+ characters, uppercase, number, and special character.
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-
-                            {/* Message Display */}
-                            {message && (
-                                <motion.div
-                                    className={`auth-message ${messageType}`}
-                                    initial={{ opacity: 0, y: -10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.3 }}
-                                >
-                                    {message}
-                                </motion.div>
-                            )}
-
-                            {/* Submit Button */}
-                            <button
-                                type="submit"
-                                className="auth-submit-btn"
-                                disabled={isLoading}
-                            >
-                                {isLoading ? (
-                                    <div className="auth-spinner"></div>
-                                ) : (
-                                    'Continue'
+                                <div className="auth-form-meta">
+                                    <button
+                                        type="button"
+                                        className="link-button forgot-link"
+                                        onClick={handleForgotPassword}
+                                    >
+                                        Forgot Password?
+                                    </button>
+                                </div>
+                                {message && (
+                                    <motion.div
+                                        className={`auth-message ${messageType}`}
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.3 }}
+                                    >
+                                        {message}
+                                    </motion.div>
                                 )}
-                            </button>
-                        </form>
-
-                        {/* Divider */}
-                        <div className="auth-divider">
-                            <span>Or continue with</span>
+                                <button
+                                    type="submit"
+                                    className="auth-submit-btn"
+                                    disabled={isLoading}
+                                >
+                                    {isLoading ? <div className="auth-spinner"></div> : 'Continue'}
+                                </button>
+                            </motion.form>
+                        ) : activeTab === 'signup' ? (
+                            <motion.div
+                                key="signup"
+                                className="auth-form embedded-register"
+                                initial={{ x: 20, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                exit={{ x: -20, opacity: 0 }}
+                                transition={{ duration: 0.25, ease: 'easeOut' }}
+                            >
+                                <RegisterNew 
+                                    embed 
+                                    onNavigate={(view) => {
+                                        if(view === 'signin') setActiveTab('signin');
+                                        if(view === 'forgot-password') setActiveTab('forgot');
+                                    }} 
+                                    onRegister={() => {
+                                        setMessage('Registration successful! Please login to continue...');
+                                        setMessageType('success');
+                                        setTimeout(()=>{
+                                            setActiveTab('signin');
+                                            setMessage('');
+                                            setMessageType('');
+                                        },1500);
+                                    }}
+                                />
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="forgot"
+                                className="auth-form embedded-forgot"
+                                initial={{ x: 20, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                exit={{ x: -20, opacity: 0 }}
+                                transition={{ duration: 0.25, ease: 'easeOut' }}
+                            >
+                                {/* Inline Forgot Password flow */}
+                                {message && (
+                                    <motion.div
+                                        className={`auth-message ${messageType}`}
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.3 }}
+                                    >
+                                        {message}
+                                    </motion.div>
+                                )}
+                                {/* Lightweight inline component to match modal styles */}
+                                <ForgotPasswordEmbed onBack={()=> setActiveTab('signin')} />
+                            </motion.div>
+                        )}
+                        </AnimatePresence>
                         </div>
 
-                        {/* Social Login */}
-                        <div className="auth-social-login">
-                            <button
-                                className="auth-social-btn"
-                                onClick={() => handleSocialLogin('google')}
-                            >
-                                <Chrome size={20} />
-                            </button>
-                            <button
-                                className="auth-social-btn"
-                                onClick={() => handleSocialLogin('facebook')}
-                            >
-                                <Facebook size={20} />
-                            </button>
-                            <button
-                                className="auth-social-btn"
-                                onClick={() => handleSocialLogin('apple')}
-                            >
-                                <Apple size={20} />
-                            </button>
-                        </div>
+                        {activeTab === 'signin' && (
+                            <>
+                                <div className="auth-divider">
+                                    <span>Or continue with</span>
+                                </div>
+                                <div className="auth-social-login">
+                                    <button className="auth-social-btn" onClick={() => handleSocialLogin('google')}>
+                                        <Chrome size={20} />
+                                    </button>
+                                    <button className="auth-social-btn" onClick={() => handleSocialLogin('facebook')}>
+                                        <Facebook size={20} />
+                                    </button>
+                                    <button className="auth-social-btn" onClick={() => handleSocialLogin('apple')}>
+                                        <Apple size={20} />
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </motion.div>
                 </motion.div>
             )}

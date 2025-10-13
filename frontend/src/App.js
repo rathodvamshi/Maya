@@ -1,19 +1,39 @@
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import Login from './components/Login';
-import RegisterNew from './components/RegisterNew';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigationType } from 'react-router-dom';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import AuthModal from './components/AuthModal';
 import LandingPage from './components/LandingPage';
 // Removed old Dashboard; modern dashboard is the default now.
 import ModernDashboard from './components/ModernDashboard';
 import LoadingSpinner from './components/LoadingSpinner';
+import ChatLayout from './components/ChatLayout.jsx';
+import Profile from './components/ProfileInterface';
+import Tasks from './components/Tasks';
+import Help from './components/Help';
+import Settings from './components/Settings';
+import NotFound from './components/NotFound';
+import ForgotPassword from './components/ForgotPassword';
 // Removed temporary SidebarTest component.
 import authService from './services/auth';
 import './styles/variables.css';
 import './styles/App.css';
+import ResponsiveNavbar from './components/ResponsiveNavbar';
 import { SelectionProvider } from './contexts/SelectionContext';
+// Removed TransitionOverlay for a cleaner, minimal transition
 // InlineAgent removed
+
+// Renders the global navbar on public pages only (hide on app pages like dashboard/settings/profile/tasks/help)
+const NavbarGate = ({ onLogin, onSignup }) => {
+    const location = useLocation();
+    const hidePrefixes = ['/dashboard', '/settings', '/profile', '/tasks', '/help'];
+    if (hidePrefixes.some(p => location.pathname === p || location.pathname.startsWith(p + '/'))) return null;
+    return (
+        <ResponsiveNavbar 
+            onLogin={onLogin}
+            onSignup={onSignup}
+        />
+    );
+};
 
 /* 
 // Old Home component - replaced with LandingPage
@@ -266,41 +286,68 @@ const Home = ({ setAuthModal }) => {
 };
 */ 
 
-// Enhanced route animations
-const pageVariants = {
-    initial: {
-        opacity: 0,
-        x: -20,
-        scale: 0.98
-    },
-    in: {
-        opacity: 1,
-        x: 0,
-        scale: 1
-    },
-    out: {
-        opacity: 0,
-        x: 20,
-        scale: 0.98
-    }
-};
-
-const pageTransition = {
-    type: "tween",
-    ease: "anticipate",
-    duration: 0.4
-};
-
-// Animated route wrapper
+// Direction-aware, reduced-motion friendly route animations
 const AnimatedRoute = ({ children }) => {
+    // Determine navigation intent: PUSH (forward) vs POP (back)
+    const navigationType = useNavigationType();
+    const prefersReduced = useReducedMotion();
+    const direction = navigationType === 'POP' ? -1 : 1; // -1 back, 1 forward/replace
+
+    // Allow quick toggling without code edits: localStorage.setItem('maya-transition', 'sleek'|'minimal')
+    const [pref, setPref] = React.useState(() => {
+        try { return localStorage.getItem('maya-transition') || 'sleek'; } catch { return 'sleek'; }
+    });
+    useEffect(() => {
+        const onStorage = (e) => {
+            if (e.key === 'maya-transition') setPref(e.newValue || 'sleek');
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, []);
+
+    // Variant presets
+    const variants = React.useMemo(() => {
+        if (prefersReduced) {
+            return {
+                initial: { opacity: 0 },
+                animate: { opacity: 1 },
+                exit: { opacity: 0 }
+            };
+        }
+
+        if (pref === 'minimal') {
+            return {
+                initial: (dir) => ({ opacity: 0, y: dir > 0 ? 8 : -8 }),
+                animate: { opacity: 1, y: 0, transition: { y: { type: 'spring', stiffness: 340, damping: 34 }, opacity: { duration: 0.28 } } },
+                exit: (dir) => ({ opacity: 0, y: dir > 0 ? -6 : 6, transition: { duration: 0.2 } })
+            };
+        }
+
+        // 'sleek' default: gentle scale + vertical slide, premium feel
+        return {
+            initial: (dir) => ({ opacity: 0, y: dir > 0 ? 22 : -22, scale: 0.985 }),
+            animate: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: {
+                    y: { type: 'spring', stiffness: 420, damping: 36, mass: 0.9 },
+                    scale: { duration: 0.36, ease: [0.22, 1, 0.36, 1] },
+                    opacity: { duration: 0.34, ease: [0.22, 1, 0.36, 1] }
+                }
+            },
+            exit: (dir) => ({ opacity: 0, y: dir > 0 ? -14 : 14, scale: 0.986, transition: { y: { duration: 0.24, ease: [0.4, 0, 1, 1] }, opacity: { duration: 0.22 }, scale: { duration: 0.22 } } })
+        };
+    }, [pref, prefersReduced]);
+
     return (
         <motion.div
+            custom={direction}
             initial="initial"
-            animate="in"
-            exit="out"
-            variants={pageVariants}
-            transition={pageTransition}
-            style={{ width: "100%", height: "100%" }}
+            animate="animate"
+            exit="exit"
+            variants={variants}
+            style={{ width: '100%', height: '100%', overflow: 'hidden', willChange: 'transform, opacity' }}
         >
             {children}
         </motion.div>
@@ -335,75 +382,14 @@ const PrivateRoute = ({ children }) => {
         );
     }
 
-    return isAuthenticated ? children : <Navigate to="/login" replace />;
+    // Redirect unauthenticated users to landing page now that standalone login page is removed
+    return isAuthenticated ? children : <Navigate to="/" replace />;
 };
 
-// Enhanced navigation component
-const Navigation = ({ currentUser, onLogout, setAuthModal }) => {
-    const location = useLocation();
-    const isAuthPage = ['/login', '/register'].includes(location.pathname);
-
-    if (isAuthPage) return null; // Hide navigation on auth pages
-
-    return (
-        <motion.nav 
-            className="navbar"
-            initial={{ y: -60, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.3 }}
-        >
-            <Link to={currentUser ? "/dashboard" : "/"} className="nav-brand">
-                <motion.span
-                    className="brand-text gradient-text"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                >
-                    Maya
-                </motion.span>
-            </Link>
-            <div className="nav-links">
-                {currentUser ? (
-                    <motion.button 
-                        onClick={onLogout} 
-                        className="nav-button logout-btn"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                    >
-                        Logout
-                    </motion.button>
-                ) : (
-                    <div className="nav-auth-links">
-                        <button 
-                            onClick={() => setAuthModal({ isOpen: true, mode: 'signin' })}
-                            className="nav-link nav-button"
-                        >
-                            <motion.span
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                            >
-                                Login
-                            </motion.span>
-                        </button>
-                        <button 
-                            onClick={() => setAuthModal({ isOpen: true, mode: 'signup' })}
-                            className="nav-link register-btn nav-button"
-                        >
-                            <motion.span
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                            >
-                                Register
-                            </motion.span>
-                        </button>
-                    </div>
-                )}
-            </div>
-        </motion.nav>
-    );
-};
 
 function App() {
-    const [currentUser, setCurrentUser] = useState(undefined);
+    // currentUser value not needed here after navigation removal; keep setter for auth flow
+    const [, setCurrentUser] = useState(undefined);
     const [isInitializing, setIsInitializing] = useState(true);
     const [authModal, setAuthModal] = useState({ isOpen: false, mode: 'signin' });
 
@@ -472,35 +458,17 @@ function App() {
         );
     }
 
-    return (
-        <SelectionProvider>
-            <Router>
-                <div className="app-container">
-                    <main className="app-content">
-                        <Suspense fallback={<LoadingSpinner />}>
-                            <AnimatePresence mode="wait">
-                                <Routes>
+    // Component to key routes by location for correct exit/enter animations
+    const RoutesWithAnimation = () => {
+        const location = useLocation();
+        return (
+            <AnimatePresence initial={false} mode="sync">
+                <Routes location={location} key={location.pathname}>
                                     <Route 
                                         path="/" 
                                         element={
                                             <AnimatedRoute>
                                                 <LandingPage />
-                                            </AnimatedRoute>
-                                        } 
-                                    />
-                                    <Route 
-                                        path="/login" 
-                                        element={
-                                            <AnimatedRoute>
-                                                <Login onAuthSuccess={handleAuthSuccess} />
-                                            </AnimatedRoute>
-                                        } 
-                                    />
-                                    <Route 
-                                        path="/register" 
-                                        element={
-                                            <AnimatedRoute>
-                                                <RegisterNew onAuthSuccess={handleAuthSuccess} />
                                             </AnimatedRoute>
                                         } 
                                     />
@@ -514,13 +482,90 @@ function App() {
                                             </PrivateRoute>
                                         } 
                                     />
+                                    <Route 
+                                        path="/chat" 
+                                        element={
+                                            <PrivateRoute>
+                                                <AnimatedRoute>
+                                                    <ChatLayout onNavigate={() => {}} onLogout={handleLogout} />
+                                                </AnimatedRoute>
+                                            </PrivateRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/profile" 
+                                        element={
+                                            <PrivateRoute>
+                                                <AnimatedRoute>
+                                                    <Profile />
+                                                </AnimatedRoute>
+                                            </PrivateRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/tasks" 
+                                        element={
+                                            <PrivateRoute>
+                                                <AnimatedRoute>
+                                                    <Tasks />
+                                                </AnimatedRoute>
+                                            </PrivateRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/help" 
+                                        element={
+                                            <PrivateRoute>
+                                                <AnimatedRoute>
+                                                    <Help />
+                                                </AnimatedRoute>
+                                            </PrivateRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/settings" 
+                                        element={
+                                            <PrivateRoute>
+                                                <AnimatedRoute>
+                                                    <Settings onNavigate={(view) => {
+                                                        if (view === 'api-keys') {
+                                                            window.location.href = '/settings#api-keys';
+                                                        }
+                                                    }} />
+                                                </AnimatedRoute>
+                                            </PrivateRoute>
+                                        } 
+                                    />
+                                    <Route 
+                                        path="/forgot-password" 
+                                        element={
+                                            <AnimatedRoute>
+                                                <ForgotPassword onNavigate={(view)=>{
+                                                    if(view==='login') setAuthModal({ isOpen: true, mode: 'signin' });
+                                                    if(view==='landing') window.location.href='/';
+                                                }} />
+                                            </AnimatedRoute>
+                                        }
+                                    />
                                     {/** Legacy dashboard route removed **/}
                                     {/** Sidebar test route removed **/}
-                                    <Route path="*" element={<Navigate to="/" replace />} />
-                                </Routes>
-                            </AnimatePresence>
+                                    <Route path="*" element={<AnimatedRoute><NotFound /></AnimatedRoute>} />
+                </Routes>
+            </AnimatePresence>
+        );
+    };
+
+    return (
+        <SelectionProvider>
+            <Router>
+                <div className="app-container">
+                    <NavbarGate onLogin={() => setAuthModal({ isOpen: true, mode: 'signin' })}
+                                onSignup={() => setAuthModal({ isOpen: true, mode: 'signup' })} />
+                    <main className="app-content">
+                        <Suspense fallback={<LoadingSpinner />}>
+                            <RoutesWithAnimation />
                         </Suspense>
-                        {/* InlineAgent removed */}
+                        {/* Overlay removed for a cleaner look */}
                     </main>
 
                     {/* Auth Modal */}

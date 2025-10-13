@@ -18,19 +18,54 @@ const chatService = {
    * @returns {Promise<AxiosResponse>} Resolves with { session_id, response_text }.
    */
   startNewChat(firstMessage) {
-  return apiClient.post('/chat/new', { message: firstMessage });
+    // Try primary chat route; on 404 or 5xx, fallback to sessions flow without duplicating the user message
+    return apiClient.post('/chat/new', { message: firstMessage }).catch(async (err) => {
+      const status = err?.response?.status;
+      if (status === 404 || (typeof status === 'number' && status >= 500)) {
+        try {
+          // Create an empty session first to avoid double-saving the initial user message
+          const createRes = await apiClient.post('/sessions/new');
+          const sid = createRes?.data?.id || createRes?.data?.session_id || createRes?.data?._id;
+          if (!sid) throw err;
+          try {
+            // Ask backend to generate a reply via sessions chat endpoint
+            const chatRes = await apiClient.post(`/sessions/${sid}/chat`, { message: firstMessage });
+            const reply = chatRes?.data?.response_text || chatRes?.data?.text || chatRes?.data?.message || '';
+            return { data: { session_id: sid, response_text: reply } };
+          } catch (inner) {
+            // Best-effort cleanup to prevent orphan empty sessions
+            try { await apiClient.delete(`/sessions/${sid}`); } catch {}
+            throw inner;
+          }
+        } catch (e) {
+          throw err;
+        }
+      }
+      throw err;
+    });
   },
 
   /**
    * Sends a message to an existing chat session.
    * @param {string} sessionId - ID of the chat session to continue.
    * @param {string} message - The user's message.
-   * @returns {Promise<AxiosResponse>} Resolves with { response_text } from AI.
+   * @returns {Promise<AxiosResponse>} Resolves with { response_text, video?, video_intent? } from AI.
    */
   sendMessage(sessionId, message) {
     if (sessionId) {
-      // Continue existing session
-  return apiClient.post(`/chat/${sessionId}`, { message });
+      // Continue existing session (correct endpoint)
+      return apiClient.post(`/chat/${sessionId}/continue`, { message }).catch(async (err) => {
+        const status = err?.response?.status;
+        // Fallback to sessions chat endpoint on 404 (not found) or 5xx (server-side issues)
+        if (status === 404 || (typeof status === 'number' && status >= 500)) {
+          // Fallback to sessions chat endpoint
+          const res = await apiClient.post(`/sessions/${sessionId}/chat`, { message });
+          // Normalize to { response_text }
+          const reply = res?.data?.response_text || res?.data?.text || res?.data?.message || '';
+          return { data: { response_text: reply } };
+        }
+        throw err;
+      });
     }
     // No generic root chat route; start a new session instead
     return apiClient.post('/chat/new', { message });
@@ -104,14 +139,24 @@ const chatService = {
    * @param {number} offset - Number of messages to skip for pagination (optional).
    * @returns {Promise<AxiosResponse>} Resolves with session message history.
    */
-  getSessionHistory(sessionId, limit = 30, offset = 0) {
+  getSessionHistory(sessionId, limitOrOptions = 30, offset = 0) {
+    // Support both (id, limit, offset) and (id, { limit, offset, before })
+    let limit = 30;
+    if (typeof limitOrOptions === 'number') {
+      limit = limitOrOptions;
+    } else if (limitOrOptions && typeof limitOrOptions === 'object') {
+      if (typeof limitOrOptions.limit === 'number') limit = limitOrOptions.limit;
+      if (typeof limitOrOptions.offset === 'number') offset = limitOrOptions.offset;
+      // 'before' is not supported server-side; could be mapped in future
+    }
+
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
     if (offset) params.append('offset', offset.toString());
-    
+
     const queryString = params.toString();
     const url = `/sessions/${sessionId}/history${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiClient.get(url);
   },
 

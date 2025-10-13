@@ -10,7 +10,7 @@ MVP Endpoints:
 All endpoints are user-scoped (auth required) and isolated from main chat memory.
 """
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict, AsyncGenerator
@@ -19,13 +19,14 @@ from datetime import datetime
 from bson import ObjectId
 import hashlib
 
-from app.security import get_current_active_user
+from app.security import get_current_active_user, verify_token
 from app.database import (
     get_mini_threads_collection,
     get_mini_snippets_collection,
     get_mini_messages_collection,
     get_chat_log_collection,
     get_inline_highlights_collection,
+    get_user_collection,
 )
 from pymongo.collection import Collection
 from app.services import ai_service
@@ -45,6 +46,7 @@ class EnsureThreadResponse(BaseModel):
     session_id: str
     snippets: List[Dict[str, Any]] = []
     messages: List[Dict[str, Any]] = []
+    meta: Dict[str, Any] = {}
 
 class AddSnippetBody(BaseModel):
     text: str = Field(..., min_length=1)
@@ -72,7 +74,41 @@ class SummarizeResponse(BaseModel):
     summary_message_id: str
     summary: str
 
+class UpdateUIBody(BaseModel):
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
 # ------------------ Helpers ------------------
+
+# Allow SSE to authenticate via either Authorization header or access_token query
+async def get_current_user_header_or_query(
+    access_token: Optional[str] = Query(default=None),
+    authorization: Optional[str] = Header(default=None),
+    users_collection: Collection = Depends(get_user_collection),
+):
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    elif access_token:
+        token = access_token.strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token_data = verify_token(token, HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token",
+        headers={"WWW-Authenticate": "Bearer"},
+    ))
+    user = users_collection.find_one({"email": token_data.username})
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    user_id_str = str(user["_id"])  # normalize ids like security
+    user["_id"] = user_id_str
+    user.setdefault("user_id", user_id_str)
+    user.setdefault("userId", user_id_str)
+    return user
 
 def _oid(val: str) -> ObjectId:
     try:
@@ -133,8 +169,28 @@ async def ensure_thread(
             "created_at": m.get("created_at"),
             "streaming": m.get("streaming", False),
             "aborted": m.get("aborted", False),
-        } for m in messages]
+        } for m in messages],
+        meta=existing.get("meta", {}),
     )
+
+@router.get("/by-message/{message_id}")
+async def get_thread_by_message(
+    message_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    mini_threads: Collection = Depends(get_mini_threads_collection),
+):
+    user_id = str(current_user["_id"])
+    existing = mini_threads.find_one({"message_id": message_id, "user_id": user_id})
+    if not existing:
+        return {"exists": False}
+    return {
+        "exists": True,
+        "mini_thread_id": str(existing["_id"]),
+        "message_id": existing["message_id"],
+        "session_id": existing.get("session_id"),
+        "meta": existing.get("meta", {}),
+        "updated_at": existing.get("updated_at"),
+    }
 
 @router.post("/threads/{thread_id}/snippets/add")
 async def add_snippet(
@@ -149,6 +205,9 @@ async def add_snippet(
     if not tdoc:
         raise HTTPException(status_code=404, detail="Thread not found")
     normalized = body.text.strip()
+    # Clamp snippet length to 5000 chars to avoid oversized prompts
+    if len(normalized) > 5000:
+        normalized = normalized[:5000]
     h = hashlib.sha256(normalized.lower().encode()).hexdigest()[:40]
     existing = mini_snippets.find_one({"mini_thread_id": thread_id, "hash": h})
     if existing:
@@ -232,6 +291,7 @@ async def get_thread(
         "mini_thread_id": thread_id,
         "message_id": tdoc["message_id"],
         "session_id": tdoc["session_id"],
+        "meta": tdoc.get("meta", {}),
         "snippets": [{"snippet_id": str(s["_id"]), "text": s["text"], "hash": s["hash"]} for s in snippets],
         "messages": [{
             "mini_message_id": str(m["_id"]),
@@ -258,6 +318,22 @@ async def send_mini_message(
     tdoc = mini_threads.find_one({"_id": _oid(thread_id), "user_id": user_id})
     if not tdoc:
         raise HTTPException(status_code=404, detail="Thread not found")
+
+    # Simple rate limiting: max 20 user messages per minute per thread
+    try:
+        from datetime import timedelta
+        window_start = datetime.utcnow() - timedelta(seconds=60)
+        recent_count = mini_messages.count_documents({
+            "mini_thread_id": thread_id,
+            "role": "user",
+            "created_at": {"$gte": window_start},
+        })
+        if recent_count >= 20:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Please wait a moment and try again.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     snippet_doc = None
     if body.snippet_id:
@@ -315,6 +391,23 @@ async def send_mini_message(
         "fallback_used": pipeline_out.fallback_used,
     }
 
+@router.patch("/threads/{thread_id}/ui")
+async def update_thread_ui_state(
+    thread_id: str,
+    body: UpdateUIBody,
+    current_user: dict = Depends(get_current_active_user),
+    mini_threads: Collection = Depends(get_mini_threads_collection),
+):
+    user_id = str(current_user["_id"])
+    tdoc = mini_threads.find_one({"_id": _oid(thread_id), "user_id": user_id})
+    if not tdoc:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    meta = body.meta or {}
+    if not isinstance(meta, dict):
+        raise HTTPException(status_code=400, detail="Invalid meta")
+    mini_threads.update_one({"_id": tdoc["_id"]}, {"$set": {"meta": meta, "updated_at": datetime.utcnow()}})
+    return {"ok": True}
+
 
 # ------------------ Streaming (SSE) Endpoint ------------------
 @router.get("/threads/{thread_id}/messages/stream")
@@ -322,7 +415,7 @@ async def stream_mini_message(
     thread_id: str,
     content: str = Query(..., min_length=1),
     snippet_id: Optional[str] = Query(None),
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_user_header_or_query),
     mini_threads: Collection = Depends(get_mini_threads_collection),
     mini_snippets: Collection = Depends(get_mini_snippets_collection),
     mini_messages: Collection = Depends(get_mini_messages_collection),
@@ -410,7 +503,15 @@ async def stream_mini_message(
         # Done event
         yield ("event: done\n" + f"data: {{\"assistant_message_id\": \"{assistant_id}\"}}\n\n").encode()
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ------------------ Highlight Persistence ------------------

@@ -101,36 +101,41 @@ async def update_profile(
     activity_collection: Collection = Depends(get_activity_logs_collection)
 ):
     """Update user profile."""
-    
-    # Prepare update data
-    update_data = {}
-    for field, value in profile_data.dict(exclude_unset=True).items():
-        if value is not None:
-            update_data[field] = value
-    
-    update_data["updated_at"] = datetime.utcnow()
-    
-    # Update profile
-    result = profile_collection.update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": update_data},
-        upsert=True
-    )
-    
-    # Log activity
-    await log_activity(
-        current_user["user_id"],
-        ActivityType.PROFILE_UPDATED,
-        "Updated profile information",
-        {"updated_fields": list(update_data.keys())},
-        activity_collection
-    )
-    
-    # Return updated profile
-    updated_profile = profile_collection.find_one({"user_id": current_user["user_id"]})
-    updated_profile["id"] = str(updated_profile["_id"])
-    del updated_profile["_id"]
-    return UserProfile(**updated_profile)
+    try:
+        update_data = {}
+        for field, value in profile_data.dict(exclude_unset=True).items():
+            if value is not None:
+                update_data[field] = value
+        if not update_data:
+            # Just re-fetch existing profile
+            existing = profile_collection.find_one({"user_id": current_user["user_id"]})
+            if existing:
+                existing["_id"] = str(existing["_id"])
+                return UserProfile(**existing)
+            raise HTTPException(status_code=404, detail="Profile not found")
+
+        update_data["updated_at"] = datetime.utcnow()
+        profile_collection.update_one(
+            {"user_id": current_user["user_id"]},
+            {"$set": update_data},
+            upsert=True
+        )
+
+        await log_activity(
+            current_user["user_id"],
+            ActivityType.PROFILE_UPDATED,
+            "Updated profile information",
+            {"updated_fields": list(update_data.keys())},
+            activity_collection
+        )
+
+        updated_profile = profile_collection.find_one({"user_id": current_user["user_id"]})
+        updated_profile["_id"] = str(updated_profile["_id"])
+        return UserProfile(**updated_profile)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {exc}")
 
 
 @router.post("/avatar")
@@ -281,14 +286,14 @@ async def create_api_key(
     })
     
     if existing_count >= 10:
-        raise HTTPException(
-            status_code=400, 
-            detail="Maximum number of API keys reached (10)"
-        )
+        raise HTTPException(status_code=400, detail="Maximum number of API keys reached (10)")
     
-    # Generate API key
-    raw_key = secrets.token_urlsafe(32)
-    api_key = f"maya_{raw_key}"
+    # Use external_key if provided, else generate internal one
+    if key_data.external_key:
+        api_key = key_data.external_key.strip()
+    else:
+        raw_key = secrets.token_urlsafe(32)
+        api_key = f"maya_{raw_key}"
     
     # Hash the key for storage
     hashed_key = hashlib.sha256(api_key.encode()).hexdigest()
@@ -303,6 +308,7 @@ async def create_api_key(
         "user_id": current_user["user_id"],
         "name": key_data.name,
         "description": key_data.description,
+        "provider": key_data.provider,
         "key_preview": key_preview,
         "hashed_key": hashed_key,
         "created_at": datetime.utcnow(),
@@ -325,7 +331,8 @@ async def create_api_key(
     
     return {
         "message": "API key created successfully",
-        "api_key": api_key,  # Return full key only once
+        "api_key": api_key if not key_data.external_key else None,
+        "provider": key_data.provider,
         "key_preview": key_preview,
         "warning": "Store this key safely. You won't be able to see it again."
     }

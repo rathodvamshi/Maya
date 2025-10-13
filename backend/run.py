@@ -63,7 +63,9 @@ if __name__ == "__main__":
         port=int(os.environ.get("UVICORN_PORT", "8000")),
         reload=True,
         reload_dirs=reload_dirs,
-        reload_excludes=reload_excludes,  # type: ignore[arg-type]
+        # Note: On Windows, uvicorn's reload pattern resolver doesn't accept absolute
+        # glob patterns. We set WATCHFILES_IGNORE above for watchfiles to respect.
+        # Passing reload_excludes here can crash on Windows, so we omit it.
         # You can add log_level here via UVICORN_LOG_LEVEL env if desired
         log_level=os.environ.get("UVICORN_LOG_LEVEL", "info"),
     )

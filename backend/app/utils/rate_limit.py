@@ -14,6 +14,9 @@ class RateLimiter:
         # Skip rate limiting for health checks and preflight
         if request.url.path.startswith("/health") or request.method == "OPTIONS":
             return await call_next(request)
+        # Skip for auth endpoints to keep login/signup snappy
+        if request.url.path.startswith("/api/auth") or request.url.path.startswith("/auth"):
+            return await call_next(request)
         if not redis_client:
             return await call_next(request)  # No Redis, skip limit
         # Identify user via Authorization or IP

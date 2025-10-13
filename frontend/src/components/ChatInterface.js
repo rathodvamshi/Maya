@@ -1,3 +1,6 @@
+// 
+// Yes. It’s the main chat UI component: displays messages, streams AI replies, handles sending (text/files/voice), embeds YouTube, feedback, scrolling, and attachments.
+
 // Modern Chat Interface with Streaming and Enhanced UX
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -27,6 +30,8 @@ import {
   X,
   Image as ImageIcon
 } from 'lucide-react';
+import VideoEmbed from './VideoEmbed';
+import { searchYouTube } from '../services/youtubeService';
 
 const ChatInterface = ({
   activeSessionId,
@@ -389,8 +394,87 @@ const ChatInterface = ({
       onMessageSent(userMessage);
     }
     
+  // Note: Do not auto-embed videos from user text.
+  // We rely on the backend to return a video payload only when it's confident,
+  // and we will append it AFTER the assistant's reply is rendered.
+
     // Start streaming response
     await streamAIResponse(userMessage);
+  };
+
+  // --- YouTube auto-embed helpers ---
+  const shouldAutoEmbedYouTube = (text) => {
+    if (!text) return false;
+    const low = String(text).toLowerCase();
+    const cues = /(\byoutube\b|\bvideo\b|\bsearch\b|\bshow me\b|\bplay\b)/i.test(low);
+    const neg = /(don['’]t|do not|no)\s+(video|play)/i.test(low);
+    // Also skip when message looks like code or multi-line
+    const tooLong = low.length > 300;
+    return cues && !neg && !tooLong;
+  };
+
+  const extractYouTubeVideoIdFromText = (text) => {
+    if (!text) return null;
+    try {
+      // Match youtu.be short links
+      const short = text.match(/https?:\/\/youtu\.be\/([\w-]{6,})/i);
+      if (short && short[1]) return short[1];
+      // Match youtube.com/watch?v=...
+      const long = text.match(/https?:\/\/(?:www\.)?youtube\.com\/watch\?[^\s]*v=([\w-]{6,})/i);
+      if (long && long[1]) return long[1];
+      // Match embed URLs
+      const emb = text.match(/https?:\/\/(?:www\.)?youtube\.com\/embed\/([\w-]{6,})/i);
+      if (emb && emb[1]) return emb[1];
+    } catch {}
+    return null;
+  };
+
+  const maybeAutoEmbedYouTube = async (text) => {
+    try {
+      // If the user pasted a YouTube link directly, embed it immediately
+      const directId = extractYouTubeVideoIdFromText(text);
+      if (directId) {
+        const ytMessage = {
+          id: `yt_${Date.now()}`,
+          role: 'assistant',
+          type: 'youtube',
+          content: 'YouTube video',
+          youtube: {
+            videoId: directId,
+            url: `https://www.youtube.com/watch?v=${directId}`,
+            title: 'YouTube video',
+            channelTitle: '',
+            thumbnail: '',
+          },
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, ytMessage]);
+        return;
+      }
+
+      if (!shouldAutoEmbedYouTube(text)) return;
+      const data = await searchYouTube(text, { maxResults: 5 });
+      const top = data?.top;
+      if (!top?.videoId) return;
+      const ytMessage = {
+        id: `yt_${Date.now()}`,
+        role: 'assistant',
+        type: 'youtube',
+        content: `${top.title}${top.channelTitle ? ` • ${top.channelTitle}` : ''}`,
+        youtube: {
+          videoId: top.videoId,
+          url: top.url,
+          title: top.title,
+          channelTitle: top.channelTitle,
+          thumbnail: top.thumbnail,
+        },
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, ytMessage]);
+    } catch (e) {
+      // Silent fail to avoid interrupting chat flow
+      // console.warn('YouTube auto-embed failed', e);
+    }
   };
 
   const streamAIResponse = async (userMessage) => {
@@ -418,6 +502,10 @@ const ChatInterface = ({
       }
 
       const aiResponse = response.data.response_text || response.data.content || 'I apologize, but I encountered an issue processing your request.';
+      // Hold any server-provided video to append AFTER the assistant reply finishes
+      const serverVideo = (() => {
+        try { return response?.data?.video; } catch { return null; }
+      })();
 
       // Add AI message while keeping thinking indicator active
       const aiMessage = {
@@ -438,6 +526,38 @@ const ChatInterface = ({
 
       // Simulate streaming by updating content gradually
       await simulateStreamingText(messageId, aiResponse, sessionId);
+
+      // After the assistant reply is fully rendered, append the video if provided by server
+      try {
+        const v = serverVideo;
+        if (v && v.videoId) {
+          setMessages(prev => {
+            const already = prev.slice(-5).some(m => m.youtube?.videoId === v.videoId);
+            if (already) return prev;
+            const ytMsg = {
+              id: `yt_${Date.now()}`,
+              role: 'assistant',
+              type: 'youtube',
+              content: '🎬 Playing your requested video',
+              timestamp: new Date(),
+              youtube: {
+                videoId: v.videoId,
+                url: v.url,
+                // Keep metadata for hover/tooltips if needed, but do not render in text
+                title: v.title,
+                channelTitle: v.channelTitle,
+                thumbnail: v.thumbnail,
+              }
+            };
+            return [...prev, ytMsg];
+          });
+          // Mark that this user request already yielded a server-side video to avoid client auto-search
+          if (typeof window !== 'undefined') {
+            window.__maya_last_play_had_server_video__ = true;
+            setTimeout(() => { try { delete window.__maya_last_play_had_server_video__; } catch {} }, 4000);
+          }
+        }
+      } catch {}
 
     } catch (error) {
       console.error('Error getting AI response:', error);
@@ -1171,18 +1291,49 @@ const MessageRow = React.memo(function MessageRow({
               <AnimatePresence mode="sync">
                 {messages.map((message) => (
                   message && message.id ? (
-                    <MessageRow
-                      key={message.id}
-                      message={message}
-                      isStreaming={streamingMessageId === message.id}
-                      user={user}
-                      onCopy={handleCopyMessage}
-                      onEdit={handleEditResend}
-                      onFeedback={handleFeedback}
-                      onSpeak={handleSpeak}
-                      onDelete={handleDeleteMessage}
-                      onPreviewAttachment={handleImagePreview}
-                    />
+                    message.type === 'youtube' && message.youtube?.videoId ? (
+                      <motion.div key={message.id} className="message-wrapper assistant" variants={assistantMessageVariants} initial="initial" animate="animate" exit="exit">
+                        <div className="message-container-static">
+                          <div className="message-avatar">
+                            <Bot size={20} />
+                          </div>
+                          <div className="message-content">
+                            <div className="message-header">
+                              <span className="message-sender">Maya AI</span>
+                              <span className="message-timestamp">{new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</span>
+                            </div>
+                            <div className="message-body">
+                              <div className="message-text">{message.content}</div>
+                              <div style={{ marginTop: 8 }}>
+                                <VideoEmbed videoId={message.youtube.videoId} title={message.youtube.title} autoplay={true} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <MessageActionBar
+                          message={message}
+                          isStreaming={false}
+                          onCopy={handleCopyMessage}
+                          onEdit={handleEditResend}
+                          onFeedback={handleFeedback}
+                          onSpeak={handleSpeak}
+                          onDelete={handleDeleteMessage}
+                        />
+                      </motion.div>
+                    ) : (
+                      <MessageRow
+                        key={message.id}
+                        message={message}
+                        isStreaming={streamingMessageId === message.id}
+                        user={user}
+                        onCopy={handleCopyMessage}
+                        onEdit={handleEditResend}
+                        onFeedback={handleFeedback}
+                        onSpeak={handleSpeak}
+                        onDelete={handleDeleteMessage}
+                        onPreviewAttachment={handleImagePreview}
+                      />
+                    )
                   ) : null
                 ))}
               </AnimatePresence>

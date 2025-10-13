@@ -80,6 +80,9 @@ def get_profile(user_id: str) -> Dict[str, Any]:
         "hobbies": doc.get("hobbies", []) or [],
         "favorites": doc.get("favorites", {}) or {},
         "preferences": doc.get("preferences", {}) or {},
+        "stats": doc.get("stats", {}) or {},
+        "recent_tasks": doc.get("recent_tasks", []) or [],
+        "last_task_at": doc.get("last_task_at"),
         "updated_at": doc.get("updated_at"),
         "version": doc.get("version", 0),
     }
@@ -141,6 +144,8 @@ def merge_update(
             preferences_existing[nk] = v.strip()
 
     update_doc: Dict[str, Any] = {"updated_at": datetime.utcnow()}
+    # Ensure user_id field exists for unique index
+    update_doc["user_id"] = user_id
     if name := _normalize_str(name):
         update_doc["name"] = name
     if timezone := _normalize_str(timezone):
@@ -172,8 +177,38 @@ def ensure_indexes():
         pass
 
 
+def record_task_created(user_id: str, *, task_id: str, title: str, due_date):
+    """Record a newly created task reference in the user's profile.
+
+    - Prepend a small entry to recent_tasks (capped to 20 most recent)
+    - Increment stats.total_tasks
+    - Set last_task_at and updated_at
+    """
+    try:
+        col = get_user_profile_collection()
+        now = datetime.utcnow()
+        entry = {
+            "id": task_id,
+            "title": title,
+            "due_date": due_date,
+            "created_at": now,
+        }
+        update = {
+            "$push": {"recent_tasks": {"$each": [entry], "$position": 0, "$slice": 20}},
+            "$set": {"last_task_at": now, "updated_at": now},
+            "$inc": {"stats.total_tasks": 1},
+        }
+        col.update_one({"_id": user_id}, update, upsert=True)
+        # Refresh cache best-effort
+        profile = get_profile(user_id)
+        cache_profile(user_id, profile)
+    except Exception:  # noqa: BLE001
+        logger.debug("record_task_created failed", exc_info=True)
+
+
 __all__ = [
     "get_profile",
     "merge_update",
     "ensure_indexes",
+    "record_task_created",
 ]

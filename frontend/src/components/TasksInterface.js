@@ -643,7 +643,7 @@ const TasksInterface = () => {
   // Main Render
   // ========================
   return (
-    <div className="tasks-interface">
+    <div className="tasks-interface modern-tasks">
       {/* Header */}
       <div className="tasks-header">
         <div className="tasks-title">

@@ -16,8 +16,32 @@ const sessionService = {
    * @param {string} sessionId The ID of the session to fetch.
    * @returns {Promise<AxiosResponse<any>>} A promise containing the session details.
    */
-  getSessionMessages: (sessionId) => {
-  return apiClient.get(`/sessions/${sessionId}`);
+  getSessionMessages: (sessionId, opts = {}) => {
+  let limit = 50, offset = 0;
+  if (typeof opts === 'number') {
+    limit = opts;
+  } else if (opts && typeof opts === 'object') {
+    if (typeof opts.limit === 'number') limit = opts.limit;
+    if (typeof opts.offset === 'number') offset = opts.offset;
+  }
+  return apiClient
+    .get(`/sessions/${sessionId}/history`, { params: { limit, offset } })
+    .then((res) => {
+      // Normalize to legacy shape expected by some components: { messages, totalMessages }
+      try {
+        const data = res?.data || {};
+        const normalized = {
+          messages: Array.isArray(data.messages) ? data.messages : [],
+          totalMessages: typeof data.total === 'number' ? data.total : (data.totalMessages || 0),
+          has_more: !!data.has_more,
+          updatedAt: data.updatedAt || null,
+          source: data.source || 'mongo',
+        };
+        return { ...res, data: normalized };
+      } catch {
+        return res;
+      }
+    });
   },
 
   /**
@@ -27,6 +51,13 @@ const sessionService = {
    */
   createSession: (messages) => {
   return apiClient.post('/sessions/', messages);
+  },
+
+  /**
+   * Creates a new empty session titled 'New Chat'.
+   */
+  createEmpty: () => {
+  return apiClient.post('/sessions/new');
   },
 
   /**

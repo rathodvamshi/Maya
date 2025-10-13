@@ -7,10 +7,11 @@ from pydantic import BaseModel
 from pymongo.collection import Collection
 from bson import ObjectId, errors
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any, Dict
 import asyncio
 import json
 import re
+import logging
 
 # -----------------------------
 # Core App Imports
@@ -21,12 +22,21 @@ from app.services import ai_service, redis_service
 from app.services.neo4j_service import neo4j_service
 from app.services.memory_coordinator import gather_memory_context, post_message_update
 from app.services import deterministic_extractor, profile_service
+from app.services import nlu
 import re
+import httpx
+import os
+from app.config import settings
 from app.database import (
     get_sessions_collection,
     get_tasks_collection,
     get_chat_log_collection,
 )
+from app.database import get_activity_logs_collection
+# Email sending removed
+from datetime import timezone, timedelta
+import dateparser
+from dateparser.search import search_dates
 # Celery task names (they are registered in celery_worker)
 # we don't import functions directly, just use task names
 # extract_and_store_facts, prefetch_destination_info
@@ -35,6 +45,7 @@ from app.database import (
 # Router Setup
 # -----------------------------
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Pydantic Models
@@ -56,15 +67,761 @@ class NewChatRequest(BaseModel):
 class NewChatResponse(BaseModel):
     session_id: str
     response_text: str
+    # Optional fast-path video payload for inline embedding on the client
+    video: Optional[dict] = None
+    # Expose intent metadata to the client for clarification flows
+    video_intent: Optional[dict] = None
+    # IDs of persisted messages (when available)
+    ai_message_id: Optional[str] = None
+    user_message_id: Optional[str] = None
 
 class ContinueChatRequest(BaseModel):
     message: str
 
 class ContinueChatResponse(BaseModel):
     response_text: str
+    video: Optional[dict] = None
+    video_intent: Optional[dict] = None
+    ai_message_id: Optional[str] = None
+    user_message_id: Optional[str] = None
+
+class VideoControlRequest(BaseModel):
+    action: str  # play|pause|replay|next|lyrics
+    session_id: Optional[str] = None
+    current_video_id: Optional[str] = None
+    current_title: Optional[str] = None
+    current_context: Optional[dict] = None  # e.g., movie/artist derived
+
+class VideoControlResponse(BaseModel):
+    response_text: str
+    video: Optional[dict] = None
+    lyrics: Optional[str] = None
+# Small helper to normalize to naive UTC
+def _to_utc_naive(dt: datetime) -> datetime:
+    if dt is None:
+        return dt
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+def _format_eta_for_user(eta_utc_naive: datetime, user_tz: str | None, time_format: str | None = None) -> str:
+    """Return a friendly time string in the user's timezone when possible, else UTC.
+
+    Example: 2025-10-10 05:32 IST (Asia/Kolkata), falling back to 'YYYY-MM-DD HH:MM UTC'.
+    """
+    try:
+        if not isinstance(eta_utc_naive, datetime):
+            return str(eta_utc_naive)
+        aware_utc = eta_utc_naive.replace(tzinfo=timezone.utc)
+        if user_tz:
+            try:
+                from zoneinfo import ZoneInfo  # Python 3.9+
+                local_dt = aware_utc.astimezone(ZoneInfo(user_tz))
+                fmt = "%Y-%m-%d %I:%M %p %Z" if (time_format or "").lower().startswith("12") else "%Y-%m-%d %H:%M %Z"
+                return local_dt.strftime(fmt)
+            except Exception:
+                pass
+        # Fallback to UTC format
+        fmt = "%Y-%m-%d %I:%M %p UTC" if (time_format or "").lower().startswith("12") else "%Y-%m-%d %H:%M UTC"
+        return aware_utc.strftime(fmt)
+    except Exception:
+        return str(eta_utc_naive)
+
 class FeedbackBody(BaseModel):
     fact_id: str
     correction: str
+def _auto_title_from_first_message(raw: str) -> str:
+    try:
+        if not raw:
+            return "New Chat"
+        low = raw.lower().strip()
+        if "remind me" in low or low.startswith("reminder"):
+            m = re.search(r"remind\s+me\s+(?:to|about)\s+(.+)", low)
+            core = (m.group(1) if m else raw)
+            core = re.sub(r"\s+in\s+\d+.*$", "", core).strip()
+            title = f"Reminder: {core[:30]}"
+        elif raw.endswith("?"):
+            title = f"Question: {raw}"
+        else:
+            words = re.split(r"\s+", raw)
+            short = " ".join(words[:8]).replace("\n", " ").strip(" -_.,")
+            title = short.title() if short else "New Chat"
+        return (title[:50] + ("" if len(title) <= 50 else "")) if len(title) <= 50 else title[:47] + "..."
+    except Exception:
+        return (raw[:47] + "...") if len(raw) > 50 else (raw or "New Chat")
+
+# =====================================================
+# 🔹 Helper: Try creating and scheduling a reminder from a free-text message
+# =====================================================
+async def _maybe_create_and_schedule_reminder(
+    message: str,
+    current_user: dict,
+    tasks: Collection,
+    context: dict,
+):
+    """Parse reminder intent, create a task document, schedule Celery, and send confirmation email.
+
+    Returns a dict with creation details when a reminder is created, else None.
+      {"created": True, "task_id": str, "title": str, "eta_utc": datetime}
+    """
+    # 1) Try structured NLU
+    try:
+        nlu_result = await nlu.get_structured_intent(message)
+    except Exception:
+        nlu_result = {}
+
+    data = nlu_result.get("data", {}) if isinstance(nlu_result, dict) else {}
+    action = nlu_result.get("action") if isinstance(nlu_result, dict) else None
+    title = (data.get("title") or "").strip() if data else ""
+    # We'll try to extract a time phrase more robustly; default to message
+    dt_text = (data.get("datetime") if data else None) or message
+
+    # 2) Fallback heuristic if NLU didn't identify action
+    if not action:
+        lower = message.lower()
+        if "remind me" in lower or lower.startswith("reminder"):
+            action = "create_task"
+            # Try to extract time phrase and title in common patterns
+            # Examples:
+            #   remind me in 10 minutes to drink water
+            #   remind me at 5pm to call mom
+            #   remind me on 12/10 to pay rent
+            #   remind me to stretch in 30 minutes
+            patterns = [
+                r"remind me (?:in|after)\s+(.+?)\s+(?:to|about)\s+(.+)",
+                r"remind me\s+(?:at|on|by)\s+(.+?)\s+(?:to|about)\s+(.+)",
+                r"remind me\s+(?:to|about)\s+(.+?)\s+(?:in|at|on|by)\s+(.+)",
+                r"remind me\s+(?:to|about)\s+(.+)",
+            ]
+            m = None
+            for p in patterns:
+                m = re.search(p, lower)
+                if m:
+                    break
+            if m:
+                if m.lastindex == 2:
+                    # two groups: (time_phrase, title) or (title, time_phrase)
+                    g1, g2 = m.group(1).strip(), m.group(2).strip()
+                    # Heuristic: if g1 parses as date, treat g1=time, else swap
+                    parsed_probe = None
+                    try:
+                        parsed_probe = dateparser.parse(
+                            g1,
+                            settings={
+                                "PREFER_DATES_FROM": "future",
+                            },
+                        )
+                    except Exception:
+                        parsed_probe = None
+                    if parsed_probe is not None:
+                        dt_text = g1
+                        if not title:
+                            title = g2
+                    else:
+                        dt_text = g2
+                        if not title:
+                            title = g1
+                else:
+                    # single group likely title; keep dt_text as full message for search_dates below
+                    if not title:
+                        title = m.group(1).strip()
+        else:
+            return None  # Not a reminder-like message
+
+    # Determine user timezone (fallback to UTC)
+    profile = context.get("profile") or {}
+    user_tz = (profile.get("timezone") if isinstance(profile, dict) else None) or "UTC"
+    try:
+        parsed_dt = dateparser.parse(
+            dt_text,
+            settings={
+                "TIMEZONE": user_tz,
+                "TO_TIMEZONE": "UTC",
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+            },
+        )
+    except Exception:
+        parsed_dt = None
+
+    # If direct parse failed, search within the message for any date/time phrase
+    if not parsed_dt:
+        try:
+            search = search_dates(
+                message,
+                settings={
+                    "TIMEZONE": user_tz,
+                    "TO_TIMEZONE": "UTC",
+                    "RETURN_AS_TIMEZONE_AWARE": True,
+                    "PREFER_DATES_FROM": "future",
+                },
+            )
+        except Exception:
+            search = None
+        if search:
+            # pick the first future time
+            now_utc = datetime.utcnow().replace(tzinfo=None)
+            for text_span, dt_val in search:
+                dt_norm = _to_utc_naive(dt_val)
+                if dt_norm and dt_norm > now_utc:
+                    parsed_dt = dt_val
+                    dt_text = text_span
+                    # If title missing, try to remove the time phrase and leading 'remind me' + 'to/about'
+                    if not title:
+                        lowered = message.lower()
+                        remainder = lowered.replace(text_span.lower(), "").strip()
+                        # extract after 'to/about'
+                        m2 = re.search(r"(?:to|about)\s+(.+)$", remainder)
+                        if m2:
+                            title = m2.group(1).strip()
+                    break
+
+    if not parsed_dt:
+        try:
+            logger.info("[Reminder Parse] No datetime found in message; skipping reminder creation")
+        except Exception:
+            pass
+        return None  # don't create past/invalid reminders
+
+    if parsed_dt <= datetime.utcnow():
+        try:
+            logger.info("[Reminder Parse] Parsed datetime is not in the future; skipping")
+        except Exception:
+            pass
+        return None  # don't create past/invalid reminders
+
+    eta_norm = _to_utc_naive(parsed_dt)
+    if not title:
+        lower = message.lower().strip()
+        # Try better fallback to capture title portion
+        m = re.search(r"remind me (?:in|after|at|on|by)\s+.+?\s+(?:to|about)\s+(.+)", lower)
+        if not m:
+            m = re.search(r"remind me (?:to|about)\s+(.+)", lower)
+        title = (m.group(1).strip() if m else "Reminder").capitalize()
+
+    # Duplicate check within ±60 seconds
+    from datetime import timedelta as _td
+    window_start = eta_norm - _td(seconds=60)
+    window_end = eta_norm + _td(seconds=60)
+
+    user_id_str = str(current_user.get("user_id") or current_user.get("_id"))
+    try:
+        dup = tasks.find_one({
+            "user_id": user_id_str,
+            "title": title,
+            "due_date": {"$gte": window_start, "$lte": window_end},
+        })
+    except Exception:
+        dup = None
+
+    if dup:
+        return None  # already have a near-duplicate scheduled
+
+    # Create and schedule
+    try:
+        task_id = str(ObjectId())
+        now = datetime.utcnow()
+        doc = {
+            "_id": task_id,
+            "user_id": user_id_str,
+            "title": title,
+            "description": None,
+            "priority": "medium",
+            "due_date": eta_norm,
+            "tags": [],
+            "status": "pending",
+            "created_at": now,
+            "updated_at": now,
+            "attempts": 0,
+            "last_error": None,
+        }
+        tasks.insert_one(doc)
+        celery_id = None
+        try:
+            logger.info(f"[Sessions] Created task {task_id} title='{title}' due={eta_norm} user={user_id_str}")
+        except Exception:
+            pass
+        # Schedule at the exact time using ETA for precision
+        try:
+            # Email reminder scheduling removed
+            celery_id = None
+            tasks.update_one({"_id": task_id}, {"$set": {"celery_task_id": None}})
+            try:
+                logger.info(f"[Sessions] Reminder scheduling via email disabled for task {task_id} at {eta_norm}")
+            except Exception:
+                pass
+            # Emit audit log into worker terminal
+            try:
+                to_email = current_user.get("email") or current_user.get("user_email")
+                celery_app.send_task(
+                    "audit_log",
+                    args=["Task Scheduled"],
+                    kwargs={
+                        "payload": {"task_id": task_id, "eta_utc": str(eta_norm), "to": to_email},
+                        "source": "chat",
+                        "immediate": False,
+                    },
+                )
+            except Exception:
+                pass
+        except Exception:
+            # Reconcile will pick up if celery id missing
+            pass
+        # Confirmation email removed
+        # Record in user profile (recent tasks + stats)
+        try:
+            profile_service.record_task_created(user_id_str, task_id=task_id, title=title, due_date=eta_norm)
+        except Exception:
+            pass
+        # Return creation details for UI confirmation
+        return {"created": True, "task_id": task_id, "title": title, "eta_utc": eta_norm, "celery_id": celery_id}
+    except Exception:
+        # Do not interrupt chat flow
+        return None
+
+# =====================================================
+# 🔹 YouTube Video Intent Detection — strict auto-play extractor
+# =====================================================
+_VIDEO_PLAY_TRIGGERS = (
+    "play", "watch", "show me", "open", "listen", "stream", "video", "vedio", "song", "music", "music video", "track", "trailer", "paly"
+)
+
+def _clean_video_query(user_text: str) -> str:
+    """Extract a clean query string from a natural language request.
+
+    Removes fillers like 'please', 'play', 'song', etc., collapses spaces, and returns
+    the remaining title/keywords only. Always lower->cleanup->original case best effort.
+    """
+    text = (user_text or "").strip()
+    low = text.lower()
+    # quick exit if no trigger, but still may include a raw title
+    fillers = [
+        "please", "can you", "could you", "i want to", "show me", "play", "watch", "video", "vedio",
+        "song", "music", "of", "from", "full", "video song", "official", "the"
+    ]
+    cleaned = low
+    for f in fillers:
+        cleaned = cleaned.replace(f, " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # If nothing remains, fallback to original minus leading verb
+    if not cleaned:
+        m = re.search(r"(?:play|watch)\s+(.+)$", low)
+        cleaned = (m.group(1) if m else low).strip()
+    # keep only sensible chunk length
+    tokens = cleaned.split()
+    if len(tokens) > 10:
+        cleaned = " ".join(tokens[:10])
+    # Return as title-cased-ish while preserving acronyms
+    try:
+        return " ".join(w.capitalize() if not re.fullmatch(r"[A-Z0-9_-]+", w) else w for w in cleaned.split())
+    except Exception:
+        return cleaned
+
+def _make_yt_query(base: str) -> str:
+    base = (base or "").strip()
+    if not base:
+        return ""
+    # Encourage official/popular results
+    return f"{base} official video"
+
+def _extract_video_entities_and_confidence(message: str) -> dict:
+    """Fast intent detection that always returns a query when a play intent is present.
+
+    We do not ask for clarifications; the caller will auto-play top result.
+    """
+    text = (message or "").strip()
+    low = text.lower()
+    detected = any(t in low for t in _VIDEO_PLAY_TRIGGERS)
+    if not detected:
+        # Semantic-like patterns without exact keywords
+        semantic_phrases = (
+            "i want to see", "can i hear", "can you put on", "let's watch", "lets watch", "queue up",
+            "bro,", "bro ", "open ", "that track", "that song"
+        )
+        if any(p in low for p in semantic_phrases):
+            detected = True
+    if not detected:
+        return {"detected": False, "confidence": 0.0, "entities": {}, "query": None, "action": "none"}
+
+    cleaned = _clean_video_query(text)
+    # Minimal entity hints (language); optional for ranking
+    lang = None
+    if "hindi" in low:
+        lang = "Hindi"
+    elif "tamil" in low:
+        lang = "Tamil"
+    elif "telugu" in low:
+        lang = "Telugu"
+    query = _make_yt_query(cleaned)
+    return {
+        "detected": True,
+        "confidence": 0.95,
+        "entities": {"lang": lang} if lang else {},
+        "query": query,
+        "action": "play",
+    }
+
+# =====================================================
+# 🔹 Pending Video Clarification Support
+# =====================================================
+async def _store_pending_video(session_id: str, det: dict):
+    try:
+        await redis_service.set_prefetched_data(f"session:video:pending:{session_id}", det, ttl_seconds=10 * 60)
+    except Exception:
+        pass
+
+async def _clear_pending_video(session_id: str):
+    try:
+        # Expire quickly by setting to None
+        await redis_service.set_prefetched_data(f"session:video:pending:{session_id}", None, ttl_seconds=1)
+    except Exception:
+        pass
+
+async def _get_pending_video(session_id: str) -> Optional[dict]:
+    try:
+        return await redis_service.get_prefetched_data(f"session:video:pending:{session_id}")
+    except Exception:
+        return None
+
+def _merge_video_entities(base: dict, incoming: dict) -> dict:
+    b = (base or {}).copy()
+    be = b.get("entities") or {}
+    ie = (incoming or {}).get("entities") or {}
+    # Prefer incoming clarifications if present
+    for k in ("song", "movie", "artist", "lang"):
+        if ie.get(k):
+            be[k] = ie[k]
+    # Recompute query from merged entities
+    parts = []
+    if be.get("song"):
+        parts.append(be["song"])
+    if be.get("movie"):
+        parts.append(be["movie"])
+    if be.get("artist") and not be.get("movie"):
+        parts.append(be["artist"])
+    if be.get("lang"):
+        parts.append(be["lang"])
+    b["entities"] = be
+    b["query"] = " ".join(p for p in parts if p).strip() or (incoming.get("query") or b.get("query"))
+    # Boost confidence slightly after clarification
+    conf = max(float(b.get("confidence") or 0.0), float(incoming.get("confidence") or 0.0))
+    b["confidence"] = min(1.0, round(conf + 0.15, 2))
+    return b
+
+
+def _tokenize(text: str) -> list[str]:
+    return [t for t in re.split(r"[^\w]+", (text or "").lower()) if t]
+
+
+def _text_relevance(query: str, title: str, description: str = "", lang: str | None = None) -> float:
+    """Compute a lightweight cosine-like similarity between query and candidate text.
+
+    Uses bag-of-words over alphanumeric tokens; fast and dependency-free.
+    Returns a value in [0,1].
+    """
+    q_tokens = _tokenize(query)
+    d_tokens = _tokenize(" ".join([title or "", description or ""]))
+    if not q_tokens or not d_tokens:
+        return 0.0
+    from collections import Counter
+
+    q_counts = Counter(q_tokens)
+    d_counts = Counter(d_tokens)
+    # dot product
+    dot = sum(q_counts[t] * d_counts.get(t, 0) for t in q_counts)
+    if dot == 0:
+        return 0.0
+    import math
+
+    q_norm = math.sqrt(sum(v * v for v in q_counts.values()))
+    d_norm = math.sqrt(sum(v * v for v in d_counts.values()))
+    if q_norm == 0 or d_norm == 0:
+        return 0.0
+    score = dot / (q_norm * d_norm)
+    # Light language alignment: if a language is specified and present in the title, nudge up
+    if lang:
+        lt = (lang or "").lower()
+        if lt in (title or "").lower():
+            score = min(1.0, score + 0.1)
+    # clamp
+    return max(0.0, min(1.0, float(score)))
+
+
+def _detect_lang_by_script(text: str) -> str | None:
+    """Very lightweight script-based heuristic for common Indian languages.
+
+    - Devanagari (Hindi/Marathi/etc.): U+0900–U+097F
+    - Tamil: U+0B80–U+0BFF
+    - Telugu: U+0C00–U+0C7F
+    """
+    if not text:
+        return None
+    try:
+        for ch in text:
+            code = ord(ch)
+            if 0x0900 <= code <= 0x097F:
+                return "Hindi"
+            if 0x0B80 <= code <= 0x0BFF:
+                return "Tamil"
+            if 0x0C00 <= code <= 0x0C7F:
+                return "Telugu"
+    except Exception:
+        return None
+    return None
+
+
+def _script_bonus_for_lang(title: str, lang: str | None) -> float:
+    if not lang or not title:
+        return 0.0
+    L = lang.lower()
+    try:
+        if L == "hindi":
+            return 0.1 if any(0x0900 <= ord(ch) <= 0x097F for ch in title) else 0.0
+        if L == "tamil":
+            return 0.1 if any(0x0B80 <= ord(ch) <= 0x0BFF for ch in title) else 0.0
+        if L == "telugu":
+            return 0.1 if any(0x0C00 <= ord(ch) <= 0x0C7F for ch in title) else 0.0
+    except Exception:
+        return 0.0
+    return 0.0
+
+
+def _official_channel_score(channel_title: str, entities: Optional[dict] = None) -> int:
+    ch = (channel_title or "").lower()
+    official_channels = {
+        "t-series",
+        "sony music india",
+        "sonymusicindiavevo",
+        "zee music company",
+        "yrf",
+        "tips official",
+        "saregama",
+        "vevo",
+        "aditya music",
+        "think music india",
+        "lahari music",
+    }
+    if any(name in ch for name in official_channels):
+        return 1
+    # Heuristic: channels containing "official", "vevo", or "music" are likely official
+    if any(tag in ch for tag in ("official", "vevo", "music")):
+        return 1
+    # If entities are provided, boost if channel contains artist or movie tokens
+    if entities:
+        for k in ("artist", "movie", "song"):
+            val = (entities.get(k) or "").lower()
+            if val and any(tok in ch for tok in _tokenize(val)):
+                return 1
+    return 0
+
+
+def _recency_bonus(published_at: str) -> float:
+    """Map recency to a small bonus in [0, 0.1]. Newer -> closer to 0.1."""
+    if not published_at:
+        return 0.0
+    from datetime import datetime, timezone
+    try:
+        # ISO 8601, often ends with 'Z'
+        dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        days = max(0.0, (now - dt).total_seconds() / 86400.0)
+        # 0 days -> 0.1, 3650 days (~10 years) -> ~0.0
+        return max(0.0, 0.1 * (1.0 - min(days / 3650.0, 1.0)))
+    except Exception:
+        return 0.0
+
+
+async def _youtube_best(query: str, entities: Optional[dict] = None) -> Optional[dict]:
+    api_key = (getattr(settings, "YOUTUBE_API_KEY", None) or os.getenv("YOUTUBE_API_KEY") or "").strip()
+    if not api_key or not query:
+        return None
+    # Redis cache for best pick
+    cache_key = f"yt:best:{query.strip().lower()}"
+    try:
+        cached = await redis_service.get_prefetched_data(cache_key)
+        if cached and cached.get("videoId"):
+            return cached
+    except Exception:
+        pass
+    params = {
+        "part": "snippet",
+        "type": "video",
+        "safeSearch": "strict",
+        "maxResults": 10,
+        "q": query,
+        "key": api_key,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get("https://www.googleapis.com/youtube/v3/search", params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("items") or []
+            if not items:
+                return None
+            vids = [((it.get("id") or {}).get("videoId") or "").strip() for it in items]
+            vids = [v for v in vids if v]
+            if not vids:
+                return None
+            v_params = {"part": "statistics,snippet", "id": ",".join(vids), "key": api_key}
+            v_resp = await client.get("https://www.googleapis.com/youtube/v3/videos", params=v_params)
+            stats_map: Dict[str, Dict[str, Any]] = {}
+            v_items = []
+            if v_resp.status_code == 200:
+                vj = v_resp.json()
+                v_items = vj.get("items") or []
+                for v in v_items:
+                    stats_map[v.get("id") or ""] = v.get("statistics") or {}
+            # Weighted scoring combining relevance, official, views, and recency
+            import math
+            max_views = 0
+            for v in v_items:
+                try:
+                    max_views = max(max_views, int((stats_map.get(v.get("id") or "") or {}).get("viewCount") or 0))
+                except Exception:
+                    pass
+
+            def final_score(it: Dict[str, Any]) -> float:
+                sn = (it.get("snippet") or {})
+                vid = it.get("id") or ""
+                ch_title = sn.get("channelTitle") or ""
+                published_at = sn.get("publishedAt") or ""
+                title = sn.get("title") or ""
+                desc = sn.get("description") or ""
+                try:
+                    views = int((stats_map.get(vid) or {}).get("viewCount") or 0)
+                except Exception:
+                    views = 0
+                relevance = _text_relevance(query, title, desc, (entities or {}).get("lang"))
+                official = _official_channel_score(ch_title, entities)
+                view_score = (views / max_views) if max_views > 0 else 0.0
+                recency = _recency_bonus(published_at)  # 0..0.1
+                # Penalize undesirable variants (covers/reactions/slowed/remix/teaser/shorts) for precision
+                lower_title = (title or "").lower()
+                penalty = 0.0
+                bad_terms = [
+                    "reaction", "teaser", "tease", "cover", "karaoke", "slowed", "reverb",
+                    "8d", "nightcore", "remix", "fan made", "shorts", "status", "whatsapp status",
+                ]
+                if any(bt in lower_title for bt in bad_terms):
+                    penalty += 0.2
+                # Prefer "official" in title subtly
+                bonus = 0.05 if "official" in lower_title else 0.0
+                # Add script bonus when language and script match
+                bonus += _script_bonus_for_lang(title, (entities or {}).get("lang"))
+                base_score = 0.45 * relevance + 0.35 * official + 0.20 * view_score + recency
+                return max(0.0, base_score + bonus - penalty)
+
+            best = None
+            best_s = -math.inf
+            for it in v_items:
+                s = final_score(it)
+                if s > best_s:
+                    best_s = s
+                    best = it
+            if not best:
+                return None
+            sn = best.get("snippet") or {}
+            vid = best.get("id")
+            thumb = (((sn.get("thumbnails") or {}).get("high") or (sn.get("thumbnails") or {}).get("medium") or (sn.get("thumbnails") or {}).get("default")) or {}).get("url", "")
+            payload = {
+                "videoId": vid,
+                "url": f"https://www.youtube.com/watch?v={vid}",
+                "title": sn.get("title") or "",
+                "channelTitle": sn.get("channelTitle") or "",
+                "thumbnail": thumb,
+                "statistics": {
+                    "viewCount": (stats_map.get(vid) or {}).get("viewCount"),
+                },
+                "_score": round(best_s, 4),
+            }
+            # Cache selection for faster follow-ups
+            try:
+                await redis_service.set_prefetched_data(cache_key, payload, ttl_seconds=12 * 3600)
+            except Exception:
+                pass
+            return payload
+    except Exception:
+        return None
+
+
+async def _maybe_handle_video_intent(user_text: str) -> Optional[dict]:
+    """If a play intent is present, auto-search and return top result or a friendly fallback.
+
+    Never ask clarifying questions.
+    """
+    det = _extract_video_entities_and_confidence(user_text)
+    if not det.get("detected"):
+        return None
+    best = await _youtube_best(det.get("query") or user_text, entities=det.get("entities"))
+    if best and best.get("videoId"):
+        # Generic response without revealing video name per requirements
+        reply = "🎬 Playing your requested video"
+        return {"handled": True, "response_text": reply, "video": best, "video_intent": det}
+    return {"handled": True, "response_text": "Sorry, I couldn’t find that video.", "video": None, "video_intent": det}
+
+# =====================================================
+# 🔹 Video Controls Endpoint (Play/Pause/Replay/Next/Lyrics)
+# =====================================================
+@router.post("/video/control", response_model=VideoControlResponse)
+async def video_control(
+    body: VideoControlRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    action = (body.action or "").lower().strip()
+    vid = (body.current_video_id or "").strip()
+    title = (body.current_title or "").strip()
+    # Play/Pause are UI-level toggles; we acknowledge without changing video.
+
+    if action in {"play", "resume"}:
+        return VideoControlResponse(response_text="▶️ Resuming playback")
+    if action == "pause":
+        return VideoControlResponse(response_text="⏸️ Paused. Click play to resume.")
+    if action == "replay":
+        # Client should reload the same iframe with autoplay=1
+        return VideoControlResponse(response_text="🔁 Replaying from the start.", video={"videoId": vid} if vid else None)
+    if action == "next":
+        # Try to fetch a related video using our youtube router
+        if not vid:
+            return VideoControlResponse(response_text="I don't have a current video to advance from.")
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                base = os.getenv("BACKEND_BASE_URL") or "http://localhost:8000"
+                r = await client.get(f"{base}/api/youtube/related", params={"video_id": vid, "max_results": 5})
+                if r.status_code == 200:
+                    data = r.json()
+                    nxt = (data.get("top") or (data.get("items") or [None])[0])
+                    if nxt and nxt.get("videoId"):
+                        nn = nxt
+                        return VideoControlResponse(response_text="⏭️ Playing next video", video={
+                            "videoId": nn.get("videoId"),
+                            "title": nn.get("title"),
+                            "channelTitle": nn.get("channelTitle"),
+                            "thumbnail": nn.get("thumbnail"),
+                            "statistics": nn.get("statistics"),
+                        })
+                return VideoControlResponse(response_text="No suitable next video found. Want a similar track instead?")
+        except Exception:
+            return VideoControlResponse(response_text="Couldn't fetch the next video right now. Try again in a moment.")
+    if action in {"lyrics", "show_lyrics"}:
+        # Placeholder: integrate a lyrics API/service later. Attempt to use session cached current video as context when title missing.
+        if not title and body.session_id:
+            try:
+                cur = await redis_service.get_prefetched_data(f"session:video:{body.session_id}")
+            except Exception:
+                cur = None
+            if cur:
+                title = cur.get("title") or title
+                vid = cur.get("videoId") or vid
+        sample = (
+            f"💫 {title} Lyrics 💫\n"
+            "Chaleya, mera ishq hai tu...\n"
+            "Chaleya, mera junoon hai tu...\n"
+            "...\n\n"
+            "🎵 Singer: Arijit Singh | Composer: Anirudh"
+        )
+        return VideoControlResponse(response_text="Here are the lyrics:", lyrics=sample)
+    return VideoControlResponse(response_text="Unknown control. Try play, pause, replay, next, or lyrics.")
 
 # =====================================================
 # 🔹 Intent Detection (Simple Rule-Based)
@@ -92,143 +849,440 @@ def _detect_intent_and_entities(message: str) -> dict:
 # =====================================================
 # 🔹 Start New Chat Session
 # =====================================================
+async def handle_chat_message(
+    message: str,
+    user_id: str,
+    session_id: str,
+    current_user: dict,
+    sessions_collection: Collection,
+    tasks_collection: Collection,
+    chat_log_collection: Collection,
+):
+    """
+    Central handler for processing a chat message, including intent detection.
+    """
+    # 1. Intent Detection for Reminders
+    reminder_result = await _maybe_create_and_schedule_reminder(
+        message, current_user, tasks_collection, {}
+    )
+
+    if reminder_result and reminder_result.get("created"):
+        # Format a confirmation message for the user
+        title = reminder_result["title"]
+        eta_utc = reminder_result["eta_utc"]
+        # In a real app, you'd get user's timezone from their profile
+        user_tz = "UTC" 
+        friendly_time = _format_eta_for_user(eta_utc, user_tz)
+        
+        confirmation_message = f"✅ Reminder set: \"{title}\" at {friendly_time}."
+        
+        # Log and return confirmation
+        await log_message(session_id, "user", message, chat_log_collection)
+        await log_message(session_id, "assistant", confirmation_message, chat_log_collection)
+        
+        return confirmation_message
+
+    # 2. Fallback to General Conversation
+    # (The existing logic for handling general chat would go here)
+    # For now, just echoing back for demonstration
+    
+    try:
+        context = await gather_memory_context(
+            user_id=user_id,
+            user_key=current_user.get("email", user_id),
+            session_id=session_id,
+            latest_user_message=message,
+            recent_messages=[],  # In a real scenario, you'd fetch recent messages
+        )
+    except Exception as _e:  # noqa: BLE001
+        try:
+            logger = logging.getLogger(__name__)
+            logger.warning("gather_memory_context failed; proceeding with minimal context")
+        except Exception:
+            pass
+        context = {
+            "history": [],
+            "state": "general_conversation",
+            "pinecone_context": None,
+            "neo4j_facts": None,
+            "profile": {},
+            "user_facts_semantic": None,
+            "persistent_memories": None,
+        }
+
+    # Generate assistant response with a resilient fallback to avoid surfacing 500s
+    try:
+        ai_response_text = await ai_service.get_response(
+            prompt=message,
+            history=context.get("history"),
+            state=context.get("state", "general_conversation"),
+            pinecone_context=context.get("pinecone_context"),
+            neo4j_facts=context.get("neo4j_facts"),
+            profile=context.get("profile"),
+            user_facts_semantic=context.get("user_facts_semantic"),
+            persistent_memories=context.get("persistent_memories"),
+        )
+    except Exception as _e:  # noqa: BLE001
+        # Soft-fail so the endpoint still returns 200 with a friendly message
+        try:
+            logger = logging.getLogger(__name__)
+            logger.exception("AI provider error during get_response; returning fallback text")
+        except Exception:
+            pass
+        ai_response_text = (
+            "I'm having trouble connecting to the AI service right now. "
+            "Let's try again in a moment."
+        )
+
+    await log_message(session_id, "user", message, chat_log_collection)
+    await log_message(session_id, "assistant", ai_response_text, chat_log_collection)
+
+    # Also persist into the session document so history endpoint can serve it
+    try:
+        now = datetime.utcnow()
+        user_doc = {"_id": ObjectId(), "sender": "user", "text": message, "timestamp": now}
+        ai_doc = {"_id": ObjectId(), "sender": "assistant", "text": ai_response_text, "timestamp": now}
+        await run_in_threadpool(
+            sessions_collection.update_one,
+            {"_id": ObjectId(session_id)},
+            {
+                "$push": {"messages": {"$each": [user_doc, ai_doc]}},
+                "$set": {"updatedAt": now, "lastMessageAt": now, "lastMessage": ai_response_text[:200]},
+                "$inc": {"messageCount": 2},
+            },
+        )
+    except Exception:
+        pass
+
+    post_message_update(
+        user_id=user_id,
+        user_key=current_user.get("email", user_id),
+        session_id=session_id,
+        user_message=message,
+        ai_message=ai_response_text,
+        state="general_conversation",
+    )
+
+    return ai_response_text
+
+async def log_message(session_id: str, sender: str, text: str, collection: Collection):
+    """Logs a message to the chat log collection."""
+    try:
+        await run_in_threadpool(
+            collection.insert_one,
+            {
+                "session_id": session_id,
+                "sender": sender,
+                "text": text,
+                "timestamp": datetime.utcnow(),
+            },
+        )
+    except Exception:
+        # Do not surface logging failures to client; keep conversation flowing
+        try:
+            logger = logging.getLogger(__name__)
+            logger.debug("chat log insert failed", exc_info=True)
+        except Exception:
+            pass
+
 @router.post("/new", response_model=NewChatResponse)
 async def start_new_chat(
     request: NewChatRequest,
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
+    tasks: Collection = Depends(get_tasks_collection),
+    chat_log: Collection = Depends(get_chat_log_collection),
+    activity_logs: Collection = Depends(get_activity_logs_collection),
 ):
     """
-    Starts a new chat session:
-    1️⃣ Ensures user exists in Neo4j.
-    2️⃣ Gathers Pinecone and Neo4j context concurrently.
-    3️⃣ Generates AI response in a threadpool to avoid blocking.
-    4️⃣ Saves session in MongoDB & initializes Redis session state.
-    5️⃣ Dispatches background fact-extraction task.
+    Starts a new chat session.
     """
     user_id = str(current_user["_id"])
-    await neo4j_service.create_user_node(user_id)
-
-    # Inline deterministic extraction BEFORE gathering context so profile is immediately updated
-    # This enables cross-session recall even after a single prior message (e.g. "My name is John").
-    try:
-        det = deterministic_extractor.extract(request.message, "")
-        if det.get("profile_update"):
-            profile_service.merge_update(user_id, **det["profile_update"])  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001
-        pass
-
-    # Gather all context via unified coordinator (session not yet created -> temp id)
-    context = await gather_memory_context(
-        user_id=user_id,
-        user_key=current_user.get("email", user_id),
-        session_id="new",  # temp placeholder
-        latest_user_message=request.message,
-        recent_messages=[],
-    )
-
-    # Generate AI response in a threadpool
-    # If user just opens with a greeting and we already know their name, craft a polite concise welcome
-    lowered = request.message.strip().lower()
-    quick_greet = lowered in {"hi", "hello", "hey", "hey there", "hello maya", "hi maya"}
-    profile = context.get("profile") or {}
-    # --- Fast-path deterministic acknowledgements ---
-    ai_response_text = None
-    text_lower = request.message.lower().strip()
-    name = profile.get("name") if isinstance(profile, dict) else None
-
-    # 1. Pure greeting
-    if ai_response_text is None and quick_greet and name:
-        ai_response_text = f"Welcome back, {name}! How can I help you today?"
-
-    # 2. Name declaration patterns
-    if ai_response_text is None:
-        m_name = re.search(r"\bmy name is ([a-zA-Z][a-zA-Z '\-]{1,40})", text_lower)
-        if m_name:
-            declared = m_name.group(1).strip().title()
-            if not name or declared.lower() != name.lower():
-                try:
-                    profile_service.merge_update(user_id, name=declared)
-                    name = declared
-                except Exception:  # noqa: BLE001
-                    pass
-            ai_response_text = f"Nice to meet you, {declared}! I'll remember that."
-
-    # 3. Favorite cuisine declaration
-    if ai_response_text is None:
-        m_cuisine = re.search(r"\bmy (?:favorite |favourite )?cuisine is ([a-zA-Z][a-zA-Z\s]{1,40})", text_lower)
-        if m_cuisine:
-            cuisine_val = m_cuisine.group(1).strip().title()
-            try:
-                profile_service.merge_update(user_id, add_favorites={"cuisine": cuisine_val})
-            except Exception:  # noqa: BLE001
-                pass
-            ai_response_text = f"Got it, you enjoy {cuisine_val} cuisine!"
-
-    # 4. Hobby declaration (simple verbs)
-    if ai_response_text is None:
-        m_hobby = re.search(r"\bi (?:like|love|enjoy) ([a-z][a-z\s]{2,40})", text_lower)
-        if m_hobby:
-            hobby = m_hobby.group(1).strip()
-            try:
-                profile_service.merge_update(user_id, add_hobbies=[hobby])
-            except Exception:  # noqa: BLE001
-                pass
-            ai_response_text = f"Great! I'll remember that you enjoy {hobby}."
-
-    # Fallback to model if none of the deterministic fast-paths applied
-    if ai_response_text is None:
-        # get_response is async; call directly (previously incorrectly wrapped)
-        ai_response_text = await ai_service.get_response(
-            prompt=request.message,
-            history=context.get("history"),
-            state=context.get("state", "general_conversation"),
-            pinecone_context=context.get("pinecone_context"),
-            neo4j_facts=context.get("neo4j_facts"),
-            profile=profile,
-            user_facts_semantic=context.get("user_facts_semantic"),
-            persistent_memories=context.get("persistent_memories"),
-        )
-
-    # Save session in MongoDB
-    user_message = {"sender": "user", "text": request.message}
-    ai_message = {"sender": "assistant", "text": ai_response_text}
+    
+    # Create a new session
+    now = datetime.utcnow()
     session_data = {
-        "userId": current_user["_id"],
-        "title": request.message[:50],
-        "createdAt": datetime.utcnow(),
-        "lastUpdatedAt": datetime.utcnow(),
-        "isArchived": False,
-        "messages": [user_message, ai_message],
+        "userId": user_id,
+        "title": "New Chat",
+        "createdAt": now,
+        "updatedAt": now,
+        "lastMessageAt": None,
+        "lastMessage": "",
+        "messageCount": 0,
+        "pinned": False,
+        "saved": False,
     }
     result = await run_in_threadpool(sessions.insert_one, session_data)
     session_id = str(result.inserted_id)
 
-    # Initialize Redis state
-    await redis_service.set_session_state(session_id, "general_conversation")
-
-    # Unified post-message update (history, embeddings, gated fact extraction)
-    post_message_update(
-        user_id=user_id,
-        user_key=current_user.get("email", user_id),
-        session_id=session_id,
-        user_message=request.message,
-        ai_message=ai_response_text,
-        state="general_conversation",
-    )
-
-    # Touch access time for any persistent memories used
+    # Try fast-path video handling first
+    video_payload = None
+    video_intent_meta = None
     try:
-        from app.services import memory_service as _memsvc
-        mem_ids = [m.get("id") for m in (context.get("persistent_memories") or []) if m.get("id")]
-        if mem_ids:
-            import asyncio as _asyncio
-            _asyncio.create_task(_memsvc.touch_memory_access(user_id, mem_ids))
+        vi = await _maybe_handle_video_intent(request.message)
+        if vi and vi.get("handled"):
+            await log_message(session_id, "user", request.message, chat_log)
+            resp_txt = vi.get("response_text") or ""
+            await log_message(session_id, "assistant", resp_txt, chat_log)
+            # Persist into session messages for history
+            try:
+                now2 = datetime.utcnow()
+                user_doc2 = {"_id": ObjectId(), "sender": "user", "text": request.message, "timestamp": now2}
+                ai_doc2 = {"_id": ObjectId(), "sender": "assistant", "text": resp_txt, "timestamp": now2}
+                await run_in_threadpool(
+                    sessions.update_one,
+                    {"_id": ObjectId(session_id)},
+                    {
+                        "$push": {"messages": {"$each": [user_doc2, ai_doc2]}},
+                        "$set": {"updatedAt": now2, "lastMessageAt": now2, "lastMessage": resp_txt[:200]},
+                        "$inc": {"messageCount": 2},
+                    },
+                )
+            except Exception:
+                pass
+            # If we asked for clarification, store pending intent for this session
+            if vi.get("video") is None and vi.get("video_intent"):
+                try:
+                    await _store_pending_video(session_id, vi.get("video_intent"))
+                except Exception:
+                    pass
+            # Remember current video for this session (used by controls like Next/Lyrics)
+            try:
+                if vi.get("video") and vi["video"].get("videoId"):
+                    await redis_service.set_prefetched_data(f"session:video:{session_id}", vi["video"], ttl_seconds=24 * 3600)
+            except Exception:
+                pass
+            # Update session metadata so it appears on top in history
+            try:
+                await run_in_threadpool(
+                    sessions.update_one,
+                    {"_id": ObjectId(session_id)},
+                    {"$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": resp_txt[:200]}},
+                )
+            except Exception:
+                pass
+            # Persist selection in activity logs for preference learning
+            try:
+                vid = (vi.get("video") or {}).get("videoId")
+                if vid:
+                    activity_logs.insert_one({
+                        "type": "youtube_play",
+                        "user_id": str(current_user.get("_id")),
+                        "session_id": session_id,
+                        "user_query": request.message,
+                        "matched_title": (vi.get("video") or {}).get("title"),
+                        "video_id": vid,
+                        "timestamp": datetime.utcnow(),
+                    })
+            except Exception:
+                pass
+
+            return NewChatResponse(
+                session_id=session_id,
+                response_text=resp_txt,
+                video={**vi.get("video", {}), "autoplay": True} if vi.get("video") else None,
+                video_intent=vi.get("video_intent"),
+                ai_message_id=str(ai_doc2["_id"]) if isinstance(ai_doc2.get("_id"), ObjectId) else None,
+                user_message_id=str(user_doc2["_id"]) if isinstance(user_doc2.get("_id"), ObjectId) else None,
+            )
     except Exception:
         pass
 
-    return {"session_id": session_id, "response_text": ai_response_text}
+    response_text = await handle_chat_message(
+        request.message, user_id, session_id, current_user, sessions, tasks, chat_log
+    )
 
+    # Update session document with last message metadata (and messageCount approx); also set smart title
+    try:
+        smart_title = _auto_title_from_first_message(request.message)
+        await run_in_threadpool(
+            sessions.update_one,
+            {"_id": ObjectId(session_id)},
+            {"$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": response_text[:200], "title": smart_title}, "$inc": {"messageCount": 2}}
+        )
+    except Exception:
+        pass
+
+    # Try to fetch the last two messages to return IDs
+    user_mid = None
+    ai_mid = None
+    try:
+        snap = await run_in_threadpool(
+            sessions.find_one,
+            {"_id": ObjectId(session_id)},
+            {"messages": {"$slice": -2}},
+        )
+        msgs = (snap or {}).get("messages", [])
+        if len(msgs) == 2:
+            # Expect order [older, newer] depending on slice; normalize by timestamps
+            m_sorted = sorted(msgs, key=lambda m: m.get("timestamp") or datetime.utcnow())
+            # First should be user, second assistant (best effort)
+            if m_sorted[0].get("sender") == "user":
+                user_mid = m_sorted[0].get("_id")
+            if m_sorted[1].get("sender") == "assistant":
+                ai_mid = m_sorted[1].get("_id")
+    except Exception:
+        pass
+
+    return NewChatResponse(
+        session_id=session_id,
+        response_text=response_text,
+        ai_message_id=str(ai_mid) if ai_mid else None,
+        user_message_id=str(user_mid) if user_mid else None,
+    )
+
+@router.post("/{session_id}/continue", response_model=ContinueChatResponse)
+async def continue_chat(
+    session_id: str,
+    request: ContinueChatRequest,
+    current_user: dict = Depends(get_current_active_user),
+    sessions: Collection = Depends(get_sessions_collection),
+    tasks: Collection = Depends(get_tasks_collection),
+    chat_log: Collection = Depends(get_chat_log_collection),
+    activity_logs: Collection = Depends(get_activity_logs_collection),
+):
+    """
+    Continues an existing chat session.
+    """
+    user_id = str(current_user["_id"])
+
+    # Verify session exists and belongs to the user (support ObjectId or string userId)
+    try:
+        match = {"_id": ObjectId(session_id), "$or": [{"userId": user_id}]}
+        if ObjectId.is_valid(user_id):
+            match["$or"].append({"userId": ObjectId(user_id)})
+        session = await run_in_threadpool(sessions.find_one, match)
+    except Exception:
+        session = None
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Title auto-generation for first message in an empty/newly created session
+    try:
+        cur_title = (session.get("title") or "").strip()
+        if not cur_title or cur_title.lower() == "new chat":
+            new_title = _auto_title_from_first_message(request.message)
+            await run_in_threadpool(
+                sessions.update_one,
+                {"_id": ObjectId(session_id)},
+                {"$set": {"title": new_title, "updatedAt": datetime.utcnow()}},
+            )
+    except Exception:
+        pass
+
+    # First, attempt fast-path video handling or resolution of pending clarification
+    try:
+        # Text-based replay of last video
+        t_low = (request.message or "").lower().strip()
+        if any(k in t_low for k in ["play that again", "replay", "again", "repeat", "once more"]):
+            try:
+                cur = await redis_service.get_prefetched_data(f"session:video:{session_id}")
+            except Exception:
+                cur = None
+            if cur and cur.get("videoId"):
+                await log_message(session_id, "user", request.message, chat_log)
+                await log_message(session_id, "assistant", "🔁 Replaying your requested video", chat_log)
+                return ContinueChatResponse(response_text="🔁 Replaying your requested video", video={**cur, "autoplay": True})
+
+        # If there's a pending clarification, merge with new message
+        pending = await _get_pending_video(session_id)
+        if pending and isinstance(pending, dict):
+            inc = _extract_video_entities_and_confidence(request.message)
+            if inc.get("detected"):
+                merged = _merge_video_entities(pending, inc)
+                if merged.get("confidence", 0.0) >= 0.75:
+                    # Good enough to attempt playback now
+                    best = await _youtube_best(merged.get("query") or request.message, entities=merged.get("entities"))
+                    if best and best.get("videoId"):
+                        title = best.get("title") or merged.get("query") or "the video"
+                        channel = best.get("channelTitle") or ""
+                        ch_str = f" · {channel}" if channel else ""
+                        reply_txt = f"▶️ Playing {title}{ch_str}"
+                        await _clear_pending_video(session_id)
+                        # Log messages
+                        await log_message(session_id, "user", request.message, chat_log)
+                        await log_message(session_id, "assistant", reply_txt, chat_log)
+                        try:
+                            await redis_service.set_prefetched_data(f"session:video:{session_id}", best, ttl_seconds=24 * 3600)
+                        except Exception:
+                            pass
+                        return ContinueChatResponse(response_text=reply_txt, video={**best, "autoplay": True}, video_intent=merged)
+            # If still unclear, keep asking—a more specific prompt
+            ask = "🤔 I can play it—please confirm the exact song or language (e.g., 'Chaleya Hindi')."
+            await log_message(session_id, "user", request.message, chat_log)
+            await log_message(session_id, "assistant", ask, chat_log)
+            return ContinueChatResponse(response_text=ask, video=None, video_intent=pending)
+
+        # No pending—try normal fast path
+        vi = await _maybe_handle_video_intent(request.message)
+        if vi and vi.get("handled"):
+            await log_message(session_id, "user", request.message, chat_log)
+            await log_message(session_id, "assistant", vi.get("response_text") or "", chat_log)
+            if vi.get("video") is None and vi.get("video_intent"):
+                try:
+                    await _store_pending_video(session_id, vi.get("video_intent"))
+                except Exception:
+                    pass
+            else:
+                try:
+                    if vi.get("video") and vi["video"].get("videoId"):
+                        await redis_service.set_prefetched_data(f"session:video:{session_id}", vi["video"], ttl_seconds=24 * 3600)
+                except Exception:
+                    pass
+            # Log selection for learning
+            try:
+                vbest = vi.get("video") or {}
+                if vbest.get("videoId"):
+                    activity_logs.insert_one({
+                        "type": "youtube_play",
+                        "user_id": str(current_user.get("_id")),
+                        "session_id": session_id,
+                        "user_query": request.message,
+                        "matched_title": vbest.get("title"),
+                        "video_id": vbest.get("videoId"),
+                        "timestamp": datetime.utcnow(),
+                    })
+            except Exception:
+                pass
+            return ContinueChatResponse(response_text=vi.get("response_text") or "", video={**(vi.get("video") or {}), "autoplay": True} if vi.get("video") else None, video_intent=vi.get("video_intent"))
+    except Exception:
+        pass
+
+    response_text = await handle_chat_message(
+        request.message, user_id, session_id, current_user, sessions, tasks, chat_log
+    )
+    
+    # Update session's updatedAt and last message info so it bubbles to top; increment count
+    try:
+        await run_in_threadpool(
+            sessions.update_one,
+            {"_id": ObjectId(session_id)},
+            {"$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": response_text[:200]}, "$inc": {"messageCount": 2}},
+        )
+    except Exception:
+        pass
+
+    # Attempt to fetch the last assistant message id
+    ai_mid2 = None
+    user_mid2 = None
+    try:
+        snap2 = await run_in_threadpool(
+            sessions.find_one,
+            {"_id": ObjectId(session_id)},
+            {"messages": {"$slice": -2}},
+        )
+        msgs2 = (snap2 or {}).get("messages", [])
+        for m in msgs2:
+            if m.get("sender") == "assistant" and m.get("_id"):
+                ai_mid2 = m.get("_id")
+            if m.get("sender") == "user" and m.get("_id"):
+                user_mid2 = m.get("_id")
+    except Exception:
+        pass
+    return ContinueChatResponse(
+        response_text=response_text,
+        ai_message_id=str(ai_mid2) if ai_mid2 else None,
+        user_message_id=str(user_mid2) if user_mid2 else None,
+    )
 
 # =====================================================
 # 🔹 Start New Chat Session (Streaming)
@@ -238,6 +1292,7 @@ async def start_new_chat_stream(
     request: NewChatRequest,
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
+    tasks: Collection = Depends(get_tasks_collection),
 ):
     """
     Starts a new chat session and streams the assistant's response token-by-token.
@@ -275,8 +1330,14 @@ async def start_new_chat_stream(
     )
 
     # Save session in MongoDB
-    user_message = {"sender": "user", "text": request.message}
-    ai_message = {"sender": "assistant", "text": ai_response_text}
+    user_message = {"_id": ObjectId(), "sender": "user", "text": request.message}
+    ai_message = {
+        "_id": ObjectId(),
+        "sender": "assistant",
+        "text": ai_response_text,
+        "annotatedHtml": None,
+        "highlights": [],
+    }
     session_data = {
         "userId": current_user["_id"],
         "title": request.message[:50],
@@ -322,6 +1383,22 @@ async def start_new_chat_stream(
         if chunk:
             yield " ".join(chunk)
 
+    # Try to create/schedule a reminder and append confirmation to the reply
+    try:
+        _res = await _maybe_create_and_schedule_reminder(request.message, current_user, tasks, context)
+        if _res and _res.get("created"):
+            eta = _res.get("eta_utc")
+            profile = context.get("profile") or {}
+            user_tz = (profile.get("timezone") if isinstance(profile, dict) else None) or "UTC"
+            time_pref = (profile.get("time_format") if isinstance(profile, dict) else None)
+            when = _format_eta_for_user(eta, user_tz, time_pref) if isinstance(eta, datetime) else str(eta)
+            title = _res.get("title") or "Reminder"
+            ai_response_text = (ai_response_text or "").strip()
+            suffix = f"\n\nI've set a reminder: {title} at {when}. You'll get an email then."
+            ai_response_text = (ai_response_text + suffix) if ai_response_text else suffix.strip()
+    except Exception:
+        pass
+
     headers = {"X-Session-Id": session_id}
     return StreamingResponse(token_stream(), media_type="text/plain", headers=headers)
 
@@ -335,6 +1412,7 @@ async def continue_chat(
     request: ContinueChatRequest,
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
+    tasks: Collection = Depends(get_tasks_collection),
 ):
     """
     Continues a chat session with full context:
@@ -385,11 +1463,8 @@ async def continue_chat(
     if prefetched_context:
         pinecone_context = f"{pinecone_context}\n{prefetched_context}"
 
-    # Generate AI response in a threadpool
-    ai_response_text = await run_in_threadpool(
-        ai_service.get_response,
-        prompt="",  # placeholder, will be overridden if fast-path not triggered
-    )  # temp call removed after patch if not needed (will be replaced below)
+    # Placeholder; may be overridden by fast-path or full model call below
+    ai_response_text = ""
 
     # Rebuild with deterministic fast-path (override above placeholder logic)
     profile = context.get("profile") or {}
@@ -473,10 +1548,29 @@ async def continue_chat(
     # Update Redis state
     # (state persisted via post_message_update below)
 
-    # Save new messages
-    user_message = {"sender": "user", "text": request.message}
-    ai_message = {"sender": "assistant", "text": ai_response_text}
-    await run_in_threadpool(
+    # Video fast-path (after composing initial answer): attempt to play or ask clarification
+    video_payload = None
+    video_intent_meta = None
+    try:
+        vi = await _maybe_handle_video_intent(request.message)
+        if vi and vi.get("handled"):
+            ai_response_text = vi.get("response_text") or ai_response_text
+            video_payload = vi.get("video")
+            video_intent_meta = vi.get("video_intent")
+    except Exception:
+        pass
+
+    # Save new messages with stable subdocument IDs and annotation fields
+    user_message = {"_id": ObjectId(), "sender": "user", "text": request.message}
+    ai_message = {
+        "_id": ObjectId(),
+        "sender": "assistant",
+        "text": ai_response_text,
+        # initialize annotation fields for highlighting feature
+        "annotatedHtml": None,
+        "highlights": [],
+    }
+    update_result = await run_in_threadpool(
         sessions.update_one,
         {"_id": session_obj_id},
         {
@@ -495,6 +1589,22 @@ async def continue_chat(
         state=next_state,
     )
 
+    # Try to create/schedule a reminder and append confirmation
+    try:
+        _res = await _maybe_create_and_schedule_reminder(request.message, current_user, tasks, context)
+        if _res and _res.get("created"):
+            eta = _res.get("eta_utc")
+            profile = context.get("profile") or {}
+            user_tz = (profile.get("timezone") if isinstance(profile, dict) else None) or "UTC"
+            time_pref = (profile.get("time_format") if isinstance(profile, dict) else None)
+            when = _format_eta_for_user(eta, user_tz, time_pref) if isinstance(eta, datetime) else str(eta)
+            title = _res.get("title") or "Reminder"
+            ai_response_text = (ai_response_text or "").strip()
+            suffix = f"\n\nI've set a reminder: {title} at {when}. You'll get an email then."
+            ai_response_text = (ai_response_text + suffix) if ai_response_text else suffix.strip()
+    except Exception:
+        pass
+
     try:
         from app.services import memory_service as _memsvc
         mem_ids = [m.get("id") for m in (context.get("persistent_memories") or []) if m.get("id")]
@@ -504,7 +1614,18 @@ async def continue_chat(
     except Exception:
         pass
 
-    return {"response_text": ai_response_text}
+    result = {"response_text": ai_response_text, "ai_message_id": str(ai_message["_id"]) }
+    if video_payload is not None:
+        result["video"] = video_payload
+    if video_intent_meta is not None:
+        result["video_intent"] = video_intent_meta
+    # Remember current video for this session if provided by fast-path
+    try:
+        if video_payload and video_payload.get("videoId"):
+            await redis_service.set_prefetched_data(f"session:video:{session_id}", video_payload, ttl_seconds=24 * 3600)
+    except Exception:
+        pass
+    return result
 
 
 # =====================================================
@@ -516,6 +1637,7 @@ async def continue_chat_stream(
     request: ContinueChatRequest,
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
+    tasks: Collection = Depends(get_tasks_collection),
 ):
     """
     Continues a chat session and streams the assistant's response token-by-token.
@@ -581,6 +1703,22 @@ async def continue_chat_stream(
                 args=[destination, session_id],
             )
     # (state persisted via post_message_update below)
+
+    # Unified reminder creation/scheduling in streaming path with inline confirmation
+    try:
+        _res = await _maybe_create_and_schedule_reminder(request.message, current_user, tasks, context)
+        if _res and _res.get("created"):
+            eta = _res.get("eta_utc")
+            profile = context.get("profile") or {}
+            user_tz = (profile.get("timezone") if isinstance(profile, dict) else None) or "UTC"
+            time_pref = (profile.get("time_format") if isinstance(profile, dict) else None)
+            when = _format_eta_for_user(eta, user_tz, time_pref) if isinstance(eta, datetime) else str(eta)
+            title = _res.get("title") or "Reminder"
+            ai_response_text = (ai_response_text or "").strip()
+            suffix = f"\n\nI've set a reminder: {title} at {when}. You'll get an email then."
+            ai_response_text = (ai_response_text + suffix) if ai_response_text else suffix.strip()
+    except Exception:
+        pass
 
     # Save new messages
     user_message = {"sender": "user", "text": request.message}

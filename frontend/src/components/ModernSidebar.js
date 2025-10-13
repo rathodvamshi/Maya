@@ -64,6 +64,20 @@ const ModernSidebar = ({
     const hasReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
                             localStorage.getItem('maya-reduced-motion') === 'true';
     setReducedMotion(hasReducedMotion);
+    // Listen for global session refresh events
+    const onRefresh = () => loadChatSessions();
+    const onActive = (e) => {
+      try {
+        const sid = e?.detail?.id;
+        if (sid && onSessionSelect) onSessionSelect(sid);
+      } catch {}
+    };
+    window.addEventListener('maya:sessions:refresh', onRefresh);
+    window.addEventListener('maya:active-session', onActive);
+    return () => {
+      window.removeEventListener('maya:sessions:refresh', onRefresh);
+      window.removeEventListener('maya:active-session', onActive);
+    };
   }, []);
 
   // ========================
@@ -227,21 +241,23 @@ const ModernSidebar = ({
       setTimeout(loadChatSessions, 1200);
     }
   };
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     onViewChange('chat');
-    
-    // Call parent's new chat handler if provided
-    if (onNewChatProp) {
-      onNewChatProp();
-    } else {
-      // Fallback: just switch to chat view
-      console.log('Creating new chat...');
-    }
-    
-    // Refresh sessions after a short delay to show new chat
-    setTimeout(() => {
-      loadChatSessions();
-    }, 1000);
+    // Prevent creating multiple empty sessions: if current session has no messages, do nothing
+    try {
+      if (activeSessionId) {
+        const s = chatSessions.find((x) => x.id === activeSessionId);
+        if (s && (!s.messageCount || s.messageCount === 0)) {
+          if (window.addNotification) {
+            window.addNotification({ type: 'info', title: 'New Chat', message: 'Current chat is empty — type a message to start.' });
+          }
+          return;
+        }
+      }
+    } catch {}
+    // Do not pre-create empty sessions; the first sent message will create a session.
+    // Notify parent to reset chat input area
+    if (onNewChatProp) onNewChatProp();
   };
 
   // Add a method to refresh sessions (can be called from parent components)
@@ -930,7 +946,7 @@ const ModernSidebar = ({
         <AnimatePresence>
           {!collapsed && (
             <motion.div
-              className="sidebar-brand"
+              className="sidebar-brand sidebar-brand-shifted"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}

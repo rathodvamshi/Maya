@@ -63,6 +63,20 @@ Prefix: `/api/user`
 - POST `/api/user/preferences`
 - GET `/api/user/preferences`
 
+Preferences API details:
+- POST `/api/user/preferences`
+  - Body fields (all optional):
+    - `enable_emojis`: boolean
+    - `enable_emotion_persona`: boolean
+    - `tone`: string; allowed: `fun`, `playful`, `formal`, `neutral`, `supportive`, `enthusiastic`
+  - Behavior:
+    - `tone` is normalized: `fun` → `playful`.
+    - Stored values use simple strings: `emoji` and `emotion_persona` are `"on"|"off"`, `tone` is the normalized tone.
+  - Response: `{ "updated": {<keys changed>}, "effective": {<current preferences>} }`
+  - Errors: `400` on invalid tone.
+- GET `/api/user/preferences`
+  - Returns: `{ "effective": {<current preferences>} }`
+
 ### Memory & Services (Indirect)
 No direct user-facing endpoints for Pinecone/Neo4j/Redis; exposed via chat/session workflows.
 

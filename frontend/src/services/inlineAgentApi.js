@@ -64,9 +64,17 @@ export async function generateAIReply(userText, context, { sessionId, agent = 'm
       body: JSON.stringify({ prompt: userText, context, session_id: sid, agent })
     });
     if (!res) {
-      return { ok: false, errorType: 'SERVICE_UNAVAILABLE', error: 'All AI services are currently unavailable. Please try again later.' };
+      // Synthesize a local minimal reply so the mini agent still responds
+      const local = userText && userText.trim() ? userText.trim() : 'your request';
+      return { ok: true, reply: `Quick take (offline): ${local.length > 220 ? local.slice(0,220) + '…' : local}` , sessionId: sid, offline: true };
     }
     if (res.error) {
+      // If backend explicitly indicates outage/unavailable, provide local reply
+      const msg = String(res.error || '').toLowerCase();
+      if (msg.includes('ai services') && msg.includes('unavailable')) {
+        const local = userText && userText.trim() ? userText.trim() : 'your request';
+        return { ok: true, reply: `Quick take (offline): ${local.length > 220 ? local.slice(0,220) + '…' : local}` , sessionId: sid, offline: true };
+      }
       return { ok: false, errorType: 'BACKEND_ERROR', error: res.error || 'Unexpected backend error' };
     }
     if (res.reply) {

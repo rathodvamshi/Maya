@@ -166,11 +166,6 @@ body {
   border: 0;
 }
 
-/* Focus Ring */
-*:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
 
 /* ========================
    Dashboard Container
@@ -306,14 +301,14 @@ body {
   padding: 0;
 }
 
-/* When sidebar expanded, gently reduce usable internal horizontal space via max-width */
-.sidebar-expanded .chat-shell .chat-interface { max-width: 1320px; margin: 0 auto; }
-.sidebar-collapsed .chat-shell .chat-interface { max-width: 1480px; margin: 0 auto; }
+/* When sidebar expanded, keep content aligned to the left */
+.sidebar-expanded .chat-shell .chat-interface { max-width: 1320px; margin: 0; }
+.sidebar-collapsed .chat-shell .chat-interface { max-width: 1480px; margin: 0; }
 
 /* Animated width wrapper */
 .chat-shell-width-anim {
   will-change: max-width, transform;
-  padding: 0 24px;
+  padding: 0 24px 0 24px;
   box-sizing: border-box;
 }
 
@@ -803,7 +798,7 @@ body, .dashboard-container.chat-with-sidebar, .chat-interface { overflow-x: hidd
   padding: var(--space-2);
   background: none;
   border: none;
-  color: var(--color-text-dim);
+  color: black;
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: var(--transition);

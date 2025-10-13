@@ -810,3 +810,78 @@
     margin-bottom: var(--space-3);
   }
 }
+
+/* =====================================================
+   Modern Enhanced Variant (matches redesigned sidebar)
+   ===================================================== */
+.modern-tasks {
+  --tasks-accent-gradient: linear-gradient(135deg,#1976d2,#4caf50);
+  background: radial-gradient(circle at 20% 20%, rgba(25,118,210,0.12), transparent 60%), radial-gradient(circle at 80% 65%, rgba(76,175,80,0.15), transparent 55%), var(--color-bg);
+  position:relative;
+}
+.modern-tasks::before { content:""; position:absolute; inset:0; background:linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0)); pointer-events:none; }
+
+.modern-tasks .tasks-header { background: rgba(255,255,255,0.04); backdrop-filter: blur(14px); border-bottom:1px solid rgba(255,255,255,0.06); }
+.modern-tasks .tasks-progress { background: rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.06); }
+.modern-tasks .tasks-filters { background: rgba(255,255,255,0.03); border-bottom:1px solid rgba(255,255,255,0.05); }
+.modern-tasks .quick-add-container { background: rgba(255,255,255,0.03); border-bottom:1px solid rgba(255,255,255,0.05); }
+.modern-tasks .bulk-actions { background: linear-gradient(135deg,rgba(25,118,210,0.15),rgba(76,175,80,0.12)); border-bottom:1px solid rgba(255,255,255,0.08); }
+
+.modern-tasks .control-button.primary { background: var(--tasks-accent-gradient); border:none; box-shadow:0 6px 18px -6px rgba(25,118,210,0.6); position:relative; overflow:hidden; }
+.modern-tasks .control-button.primary::after { content:""; position:absolute; inset:0; background:linear-gradient(120deg,rgba(255,255,255,0.55),transparent 40%); opacity:0; transform:translateX(-60%); transition:opacity .5s ease, transform .8s ease; }
+.modern-tasks .control-button.primary:hover::after { opacity:.6; transform:translateX(0); }
+
+.modern-tasks .progress-bar { background: rgba(255,255,255,0.08); height:6px; border-radius:4px; }
+.modern-tasks .progress-fill { background: var(--tasks-accent-gradient); position:relative; box-shadow:0 2px 8px -2px rgba(25,118,210,0.6); }
+.modern-tasks .progress-fill::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,rgba(255,255,255,0.35),rgba(255,255,255,0)); mix-blend-mode:overlay; animation: shimmer 2.2s linear infinite; }
+@keyframes shimmer { 0% { background-position:-200% 0; } 100% { background-position:200% 0; } }
+
+.modern-tasks .filter-search { background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); }
+.modern-tasks .filter-search:focus-within { border-color:#1976d2; box-shadow:0 0 0 2px rgba(25,118,210,0.35); }
+.modern-tasks .tasks-filters select { background: rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); backdrop-filter: blur(8px); }
+.modern-tasks .tasks-filters select:focus { border-color:#1976d2; box-shadow:0 0 0 2px rgba(25,118,210,0.3); }
+
+/* Task cards elevated glass look */
+.modern-tasks .task-card { background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); backdrop-filter: blur(10px); position:relative; overflow:hidden; transition:background .35s ease,border-color .35s ease,transform .35s ease, box-shadow .35s ease; }
+.modern-tasks .task-card::before { content:""; position:absolute; inset:0; background:radial-gradient(circle at 85% 15%, rgba(255,255,255,0.18), transparent 60%); opacity:0; transition:opacity .4s ease; }
+.modern-tasks .task-card:hover { background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.18); transform:translateY(-4px) scale(1.01); box-shadow:0 10px 32px -10px rgba(0,0,0,0.55); }
+.modern-tasks .task-card:hover::before { opacity:1; }
+.modern-tasks .task-card.completed { background:rgba(76,175,80,0.08); }
+.modern-tasks .task-card.selected { box-shadow:0 0 0 2px rgba(25,118,210,0.55),0 8px 22px -8px rgba(25,118,210,0.45); }
+.modern-tasks .task-card.overdue { border-left:4px solid #ff6b6b; }
+
+/* Animated priority bar glow */
+.modern-tasks .task-priority { box-shadow:0 0 0 1px rgba(255,255,255,0.2) inset,0 0 6px -1px rgba(255,255,255,0.6); animation: pulseBar 3.5s ease-in-out infinite; }
+@keyframes pulseBar { 0%,100% { filter:brightness(1); } 50% { filter:brightness(1.4); } }
+
+/* Action buttons subtle scale */
+.modern-tasks .task-action-button { background:rgba(255,255,255,0.04); border-radius:10px; }
+.modern-tasks .task-action-button:hover { background:rgba(255,255,255,0.12); transform:translateY(-2px) scale(1.05); }
+
+/* Snooze dropdown refined */
+.modern-tasks .snooze-menu { background:rgba(17,24,32,0.9); border:1px solid rgba(255,255,255,0.12); backdrop-filter: blur(18px); }
+.modern-tasks .snooze-menu button { color:#e4e9ef; }
+.modern-tasks .snooze-menu button:hover { background:rgba(255,255,255,0.08); }
+
+/* Group containers */
+.modern-tasks .task-group { background:rgba(255,255,255,0.035); border:1px solid rgba(255,255,255,0.07); }
+.modern-tasks .task-group-header { background:linear-gradient(90deg,rgba(255,255,255,0.06),rgba(255,255,255,0)); border-bottom:1px solid rgba(255,255,255,0.05); }
+.modern-tasks .task-group-toggle { color:#f5f7fa; }
+.modern-tasks .group-count { background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:12px; font-size:10px; }
+
+/* Bulk actions elevated bar */
+.modern-tasks .bulk-actions { box-shadow:0 8px 24px -8px rgba(25,118,210,0.4); }
+.modern-tasks .bulk-buttons button { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); }
+.modern-tasks .bulk-buttons button:hover { background:rgba(255,255,255,0.14); }
+.modern-tasks .bulk-buttons button.danger { color:#ff8a80; border-color:#ff8a80; }
+.modern-tasks .bulk-buttons button.danger:hover { background:rgba(255,138,128,0.15); }
+
+/* Kanban columns updated */
+.modern-tasks .kanban-column { background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); backdrop-filter: blur(10px); }
+.modern-tasks .kanban-column h3 { border-bottom:1px solid rgba(255,255,255,0.1); }
+
+/* Focus rings */
+.modern-tasks button:focus-visible, .modern-tasks select:focus-visible, .modern-tasks input:focus-visible { outline:2px solid #1976d2; outline-offset:2px; }
+
+/* Reduced motion respect */
+@media (prefers-reduced-motion: reduce) { .modern-tasks .task-card, .modern-tasks .control-button.primary::after, .modern-tasks .progress-fill::after { animation:none !important; transition:none !important; } }

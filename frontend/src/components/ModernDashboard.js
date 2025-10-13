@@ -19,7 +19,7 @@ import {
 
 // Components
 import ModernSidebar from './ModernSidebar';
-import ChatInterface from './ChatInterface';
+import ChatLayout from './ChatLayout.jsx';
 import TasksInterface from './TasksInterface';
 import ProfileInterface from './ProfileInterface';
 import CommandPalette from './CommandPalette';
@@ -147,7 +147,7 @@ const ModernDashboard = () => {
         }
       }
       
-      // Fetch from API
+    // Fetch from API
   const response = await chatService.getSessionHistory(sessionId, 30, 0);
   const payload = response.data || {};
   const messages = payload.messages || payload || [];
@@ -213,8 +213,36 @@ const ModernDashboard = () => {
       }
       return formattedMessages;
     } catch (error) {
-      console.error('Error loading session history:', error);
-      if (window.addNotification) {
+      const status = error?.response?.status;
+      console.error('Error loading session history:', status, error?.message || error);
+      // If the session no longer exists (404), clear stale cache and localStorage
+      if (status === 404) {
+        try {
+          setSessionCache(prev => {
+            const next = new Map(prev);
+            next.delete(sessionId);
+            return next;
+          });
+        } catch {}
+        if (localStorage.getItem('maya-active-session') === sessionId) {
+          localStorage.removeItem('maya-active-session');
+        }
+        // Inform user softly
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'warning',
+            title: 'Session Not Found',
+            message: 'That chat session may have been deleted. Starting a new chat.',
+            duration: 3000
+          });
+        }
+        // Reset to a clean state
+        setActiveSessionId(null);
+        setSessionHistory([]);
+        return [];
+      }
+      // For unauthorized, a global interceptor will prompt login; avoid duplicate toasts here
+      if (status !== 401 && window.addNotification) {
         window.addNotification({
           type: 'error',
           title: 'Session Load Error',
@@ -379,7 +407,15 @@ const ModernDashboard = () => {
       if (savedSessionId && user) {
         try {
           await loadSessionHistory(savedSessionId);
-          console.log('Restored session:', savedSessionId);
+          // Only consider restored if it actually became active
+          setTimeout(() => {
+            if (activeSessionId === savedSessionId) {
+              console.log('Restored session:', savedSessionId);
+            } else {
+              // History failed to load or session not found; clear stale ID
+              localStorage.removeItem('maya-active-session');
+            }
+          }, 0);
         } catch (error) {
           console.error('Failed to restore session:', error);
           localStorage.removeItem('maya-active-session');
@@ -593,35 +629,14 @@ const ModernDashboard = () => {
   const renderCurrentView = () => {
     switch (currentView) {
       case 'chat':
-        return (
-          <div className="chat-shell">
-            <ChatInterface 
-              activeSessionId={activeSessionId}
-              sessionHistory={sessionHistory}
-              sessionLoading={sessionLoading}
-              onSessionChange={handleSessionSelect}
-              onMessageSent={addMessageToSession}
-              onNewSession={handleNewChat}
-            />
-          </div>
-        );
+        // Use the full chat layout and pass active session to load its history
+        return <ChatLayout initialChatId={activeSessionId || ''} />;
       case 'tasks':
         return <TasksInterface />;
       case 'profile':
         return <ProfileInterface />;
       default:
-        return (
-          <div className="chat-shell">
-            <ChatInterface 
-              activeSessionId={activeSessionId}
-              sessionHistory={sessionHistory}
-              sessionLoading={sessionLoading}
-              onSessionChange={handleSessionSelect}
-              onMessageSent={addMessageToSession}
-              onNewSession={handleNewChat}
-            />
-          </div>
-        );
+        return <ChatLayout initialChatId={activeSessionId || ''} />;
     }
   };
 
@@ -691,7 +706,7 @@ const ModernDashboard = () => {
 
   return (
     <motion.div 
-      className={`dashboard-container chat-with-sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded'}`}
+      className={`dashboard-container ${currentView === 'chat' ? 'full-screen-chat' : 'chat-with-sidebar'} ${sidebarCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded'}`}
       variants={containerVariants}
       initial="initial"
       animate="animate"
@@ -712,68 +727,67 @@ const ModernDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* Animated Sidebar */}
-      <AnimatePresence initial={false}>
-        <motion.aside
-          key="sidebar"
-          className={`modern-sidebar ${sidebarCollapsed ? 'collapsed' : 'expanded'}`}
-          variants={sidebarVariants}
-          initial={sidebarCollapsed ? 'collapsed' : 'expanded'}
-          animate={sidebarCollapsed ? 'collapsed' : 'expanded'}
-          exit="hidden"
-        >
-          <div className="sidebar-header-mini">
+      {/* Hide dashboard sidebar when in chat view to avoid double sidebars */}
+      {currentView !== 'chat' && (
+        <AnimatePresence initial={false}>
+          <motion.aside
+            key="sidebar"
+            className={`modern-sidebar ${sidebarCollapsed ? 'collapsed' : 'expanded'}`}
+            variants={sidebarVariants}
+            initial={sidebarCollapsed ? 'collapsed' : 'expanded'}
+            animate={sidebarCollapsed ? 'collapsed' : 'expanded'}
+            exit="hidden"
+          >
+            <div className="sidebar-header-mini">
+              <button
+                className="sidebar-toggle-btn"
+                onClick={toggleSidebarAnimated}
+                title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                {sidebarCollapsed ? <Menu size={18} /> : <X size={18} />}
+              </button>
+              {!sidebarCollapsed && <h2 className="sidebar-title">Maya</h2>}
+            </div>
+            <ModernSidebar
+              collapsed={sidebarCollapsed}
+              pinned={sidebarPinned}
+              currentView={currentView}
+              onViewChange={handleViewChange}
+              onToggleCollapse={toggleSidebarAnimated}
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              user={user}
+              activeSessionId={activeSessionId}
+              onSessionSelect={handleSessionSelect}
+              onSessionDelete={handleSessionDelete}
+              onNewChat={handleNewChat}
+            />
+          </motion.aside>
+        </AnimatePresence>
+      )}
+
+      {/* Main Chat Content */}
+  <div className={`main-content ${currentView === 'chat' ? 'full-screen' : 'chat-surface'}`}>
+        {/* Hide top bar and dashboard wrappers in chat view */}
+        {currentView !== 'chat' && (
+          <div className="chat-top-bar">
             <button
-              className="sidebar-toggle-btn"
+              className="sidebar-toggle-floating"
               onClick={toggleSidebarAnimated}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
             >
               {sidebarCollapsed ? <Menu size={18} /> : <X size={18} />}
             </button>
-            {!sidebarCollapsed && <h2 className="sidebar-title">Maya</h2>}
+            <div className="chat-top-bar-spacer" />
           </div>
-          {/* Reuse existing ModernSidebar content if needed (or keep minimal) */}
-          <ModernSidebar
-            collapsed={sidebarCollapsed}
-            pinned={sidebarPinned}
-            currentView={currentView}
-            onViewChange={handleViewChange}
-            onToggleCollapse={toggleSidebarAnimated}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            user={user}
-            activeSessionId={activeSessionId}
-            onSessionSelect={handleSessionSelect}
-            onSessionDelete={handleSessionDelete}
-            onNewChat={handleNewChat}
-          />
-        </motion.aside>
-      </AnimatePresence>
-
-      {/* Main Chat Content */}
-      <div className="main-content chat-surface">
-        <div className="chat-top-bar">
-          <button
-            className="sidebar-toggle-floating"
-            onClick={toggleSidebarAnimated}
-            title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-          >
-            {sidebarCollapsed ? <Menu size={18} /> : <X size={18} />}
-          </button>
-          <div className="chat-top-bar-spacer" />
-        </div>
-        <motion.main
-          className="dashboard-content chat-main"
-          variants={contentVariants}
-          initial="initial"
-          animate="animate"
-        >
+        )}
+  <motion.main className={`dashboard-content ${currentView === 'chat' ? 'full-screen-content chat-main' : 'chat-main'}`} variants={contentVariants} initial="initial" animate="animate">
           <motion.div
             className="chat-shell-width-anim"
             variants={chatShellVariants}
             initial={sidebarCollapsed ? 'collapsed' : 'expanded'}
             animate={sidebarCollapsed ? 'collapsed' : 'expanded'}
-            style={{ margin: '0 auto', width: '100%' }}
+            style={{ margin: 0, width: '100%', alignSelf: 'flex-start' }}
           >
             {renderCurrentView()}
           </motion.div>
@@ -788,19 +802,7 @@ const ModernDashboard = () => {
         searchQuery={searchQuery}
       />
 
-      {/* Toast System */}
-      <ToastSystem />
-
-      {/* High Contrast Toggle (Accessibility) */}
-      <button
-        className="accessibility-toggle"
-        onClick={toggleHighContrast}
-        title={`${highContrast ? 'Disable' : 'Enable'} high contrast mode`}
-        aria-label={`${highContrast ? 'Disable' : 'Enable'} high contrast mode`}
-      >
-        <span className="sr-only">High Contrast</span>
-        HC
-      </button>
+      {/* ToastSystem & accessibility toggle removed per request */}
     </motion.div>
   );
 };

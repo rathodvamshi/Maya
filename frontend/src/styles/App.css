@@ -43,6 +43,29 @@
     height: 70px;
     background: var(--glass-bg);
     border-bottom: 1px solid var(--glass-border);
+/* Global dark background and white text for all pages */
+html, body, #root {
+    background-color: #262626;
+    color: #ffffff;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+*, *::before, *::after { box-sizing: inherit; }
+
+:root {
+    --layout-sidebar-open: 260px;
+    --layout-sidebar-closed: 70px;
+    --layout-transition: 0.3s ease;
+}
+
+.app-container, .app-content {
+    background-color: #262626;
+    color: #ffffff;
+}
     box-shadow: var(--shadow-lg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);

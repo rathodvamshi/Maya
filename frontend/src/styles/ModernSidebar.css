@@ -11,6 +11,28 @@
   z-index: 10;
 }
 
+/* Enhanced aesthetic layer (shared gradient + subtle noise) */
+.modern-sidebar { background:
+  radial-gradient(circle at 80% 15%, rgba(59,130,246,0.18), transparent 60%),
+  radial-gradient(circle at 15% 85%, rgba(139,92,246,0.18), transparent 55%),
+  linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0) 40%, rgba(255,255,255,0.03)); }
+
+/* Scrollable body area (everything after header) */
+.modern-sidebar > .sidebar-header + * { flex:1; overflow-y:auto; overflow-x:hidden; position:relative; display:flex; flex-direction:column; }
+.modern-sidebar > .sidebar-header + *::-webkit-scrollbar { width:6px; }
+.modern-sidebar > .sidebar-header + *::-webkit-scrollbar-track { background:transparent; }
+.modern-sidebar > .sidebar-header + *::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:3px; }
+.modern-sidebar > .sidebar-header + *::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.22); }
+
+/* Gradient edge fade for scroll container */
+.modern-sidebar > .sidebar-header + *::after { content:""; position:sticky; bottom:0; left:0; right:0; height:42px; pointer-events:none; background:linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.35)); }
+
+@media (max-width: 880px) {
+  .modern-sidebar { backdrop-filter: blur(14px); background:
+    linear-gradient(180deg, rgba(17,24,39,0.88), rgba(17,24,39,0.78)); }
+  .modern-sidebar > .sidebar-header + * { scroll-padding-top:12px; }
+}
+
 .modern-sidebar.collapsed {
   width: var(--sidebar-collapsed-width);
 }
@@ -48,6 +70,11 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* Shift brand/logo left when sidebar expanded */
+.modern-sidebar.expanded .sidebar-brand-shifted {
+  margin-left: -20px;
 }
 
 /* Sidebar Toggle Button */

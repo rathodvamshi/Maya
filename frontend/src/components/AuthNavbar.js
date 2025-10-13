@@ -1,3 +1,5 @@
+// Yes. It shows the auth page top bar with a back button and animated brand title for navigation.
+
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';

@@ -1,74 +1,180 @@
-// Modern Profile Interface with Inline Editing and Security Features
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import '../styles/ProfileInterface.css';
-import { 
-  ArrowLeft, 
-  Edit3, 
-  Save, 
-  X, 
-  Copy, 
-  Eye, 
-  EyeOff, 
-  Key, 
-  Shield, 
-  Activity, 
-  Calendar, 
-  MapPin, 
-  Mail, 
-  User, 
-  Camera,
-  Settings,
-  Lock,
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  User,
+  MessageSquare,
+  CheckCircle,
+  TrendingUp,
   Trash2,
-  Plus,
+  Camera,
+  ArrowLeft,
+  Copy,
   Check,
-  AlertTriangle
+  X,
+  Loader2,
+  Key,
+  Plus,
+  Plug,
+  Globe2,
+  CloudRain,
+  Youtube,
+  Brain,
+  Pencil
 } from 'lucide-react';
-import authService from '../services/auth';
+import { useNavigate } from 'react-router-dom';
+import '../styles/ProfileInterface.css';
 import profileService from '../services/profileService';
+import authService from '../services/auth';
 
-const ProfileInterface = () => {
+const Profile = () => {
+  const navigate = useNavigate();
   // ========================
-  // State Management
+  // State
   // ========================
   const [user, setUser] = useState(null);
   const [editingField, setEditingField] = useState(null);
   const [editValues, setEditValues] = useState({});
-  const [apiKeys, setApiKeys] = useState([]);
-  const [showNewKeyForm, setShowNewKeyForm] = useState(false);
-  const [newKeyLabel, setNewKeyLabel] = useState('');
-  const [generatedKey, setGeneratedKey] = useState(null);
-  const [securityLog, setSecurityLog] = useState([]);
-  const [activityData, setActivityData] = useState([]);
   const [stats, setStats] = useState({});
-  const [showKeyValue, setShowKeyValue] = useState({});
-  const [reducedMotion, setReducedMotion] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [displayStats, setDisplayStats] = useState({ totalChats: 0, completedTasks: 0, usageRate: 0 });
+  const statsAnimatingRef = useRef(false);
+  const lastStatsRef = useRef(displayStats);
+  const [fieldStatus, setFieldStatus] = useState({}); // { field: { state:'idle'|'saving'|'success'|'error', message?:string } }
+  const [globalMessage, setGlobalMessage] = useState(null); // { type:'success'|'error', text }
+  const [editingFields, setEditingFields] = useState(new Set()); // retained for username but disabled UI
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [apiKeys, setApiKeys] = useState([]);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [showApiModal, setShowApiModal] = useState(false);
+  const [apiModalStep, setApiModalStep] = useState(1); // 1 = provider select, 2 = key form
+  const [selectedProvider, setSelectedProvider] = useState(null);
+  const [newApiData, setNewApiData] = useState({ name: '', key: '', description: '' });
+  const [apiError, setApiError] = useState(null);
+  const [apiSaving, setApiSaving] = useState(false);
+  const [customStats, setCustomStats] = useState(() => {
+    try {
+      const raw = localStorage.getItem('maya_custom_stats');
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileModalValues, setProfileModalValues] = useState({ name: '', role: '' });
+  const [profileModalSaving, setProfileModalSaving] = useState(false);
+  const [toast, setToast] = useState(null); // { type, text }
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState(null);
+  const [showApiDeleteModal, setShowApiDeleteModal] = useState(false);
+  const [apiDeleteTarget, setApiDeleteTarget] = useState(null);
+  const [apiDeleting, setApiDeleting] = useState(false);
 
-  // ========================
-  // Refs
-  // ========================
+  const roleOptions = [
+    { value: 'student', label: 'Student 🎓' },
+    { value: 'employee', label: 'Employee 👔' },
+    { value: 'web_developer', label: 'Web Developer 💻' },
+    { value: 'ai_developer', label: 'AI Developer 🤖' },
+    { value: 'designer', label: 'Designer 🎨' },
+    { value: 'manager', label: 'Manager 🧭' },
+    { value: 'researcher', label: 'Researcher 🔬' },
+    { value: 'content_creator', label: 'Content Creator ✍️' }
+  ];
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteType, setDeleteType] = useState('');
   const fileInputRef = useRef(null);
   const editInputRefs = useRef({});
 
   // ========================
-  // Effects
+  // Load Data
   // ========================
   useEffect(() => {
-    loadUserData();
-    loadApiKeys();
-    loadSecurityLog();
-    loadActivityData();
-    loadStats();
+    const loadProfile = async () => {
+      const result = await profileService.getProfile();
+      if (result.success) {
+        setUser(result.data);
+        setEditValues({
+          name: result.data.name || '',
+          email: result.data.email || '',
+          role: result.data.role || ''
+        });
+      }
+    };
 
-    // Check reduced motion preference
-    const hasReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
-                            localStorage.getItem('maya-reduced-motion') === 'true';
-    setReducedMotion(hasReducedMotion);
+    const loadStats = async () => {
+      const result = await profileService.getUserStats();
+      if (result.success) {
+        const raw = result.data || {};
+        // Normalize naming (backend snake_case → camelCase front end) & derive usageRate
+        const normalized = {
+          totalChats: raw.total_chats ?? raw.totalChats ?? 0,
+          completedTasks: raw.completed_tasks ?? raw.completedTasks ?? 0,
+          totalTasks: raw.total_tasks ?? raw.totalTasks ?? 0,
+        };
+        normalized.usageRate = normalized.totalTasks > 0 ? (normalized.completedTasks / normalized.totalTasks) * 100 : 0;
+        setStats(normalized);
+      }
+    };
+
+    const loadApiKeys = async () => {
+      setApiLoading(true);
+      const result = await profileService.getApiKeys();
+      if (result.success) setApiKeys(result.data || []);
+      setApiLoading(false);
+    };
+
+    loadProfile();
+    loadStats();
+    loadApiKeys();
+    // Polling interval for live stats
+    const interval = setInterval(loadStats, 15000); // 15s
+    // Optional event-based refresh hooks
+    const refreshEvents = ['maya:chat-updated', 'maya:tasks-updated'];
+    const refreshHandler = () => loadStats();
+    refreshEvents.forEach(ev => window.addEventListener(ev, refreshHandler));
+    return () => {
+      clearInterval(interval);
+      refreshEvents.forEach(ev => window.removeEventListener(ev, refreshHandler));
+    };
   }, []);
 
-  // Focus on edit input when editing starts
+  // Animated number transition helper
+  const animateStats = useCallback((from, to, duration = 600) => {
+    statsAnimatingRef.current = true;
+    const start = performance.now();
+    const step = (now) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const ease = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+      const current = {
+        totalChats: Math.round(from.totalChats + (to.totalChats - from.totalChats) * ease),
+        completedTasks: Math.round(from.completedTasks + (to.completedTasks - from.completedTasks) * ease),
+        usageRate: from.usageRate + (to.usageRate - from.usageRate) * ease,
+      };
+      setDisplayStats(current);
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        statsAnimatingRef.current = false;
+        lastStatsRef.current = to;
+      }
+    };
+    requestAnimationFrame(step);
+  }, []);
+
+  // Trigger animation when stats change
+  useEffect(() => {
+    if (!stats) return;
+    const target = {
+      totalChats: stats.totalChats || 0,
+      completedTasks: stats.completedTasks || 0,
+      usageRate: stats.usageRate || 0,
+    };
+    animateStats(lastStatsRef.current, target);
+  }, [stats, animateStats]);
+
+  const formatNumber = (n) => {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  };
+
+  const usageRateDisplay = `${Math.round(displayStats.usageRate)}%`;
+
   useEffect(() => {
     if (editingField && editInputRefs.current[editingField]) {
       editInputRefs.current[editingField].focus();
@@ -76,726 +182,647 @@ const ProfileInterface = () => {
   }, [editingField]);
 
   // ========================
-  // Data Loading
-  // ========================
-  const loadUserData = async () => {
-    try {
-      setIsLoading(true);
-      const result = await profileService.getProfile();
-      
-      if (result.success) {
-        const userData = result.data;
-        setUser(userData);
-        setEditValues({
-          name: userData.name || '',
-          email: userData.email || '',
-          role: userData.role || '',
-          location: userData.location || '',
-          bio: userData.bio || ''
-        });
-      } else {
-        console.error('Failed to load profile:', result.error);
-        // Show error notification
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Failed to Load Profile',
-            message: result.error || 'Unable to fetch profile data'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to connect to server'
-        });
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadApiKeys = async () => {
-    try {
-      const result = await profileService.getApiKeys();
-      
-      if (result.success) {
-        setApiKeys(result.data);
-      } else {
-        console.error('Failed to load API keys:', result.error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Failed to Load API Keys',
-            message: result.error || 'Unable to fetch API keys'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error loading API keys:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to load API keys'
-        });
-      }
-    }
-  };
-
-  const loadSecurityLog = async () => {
-    try {
-      const result = await profileService.getSecurityEvents();
-      
-      if (result.success) {
-        setSecurityLog(result.data);
-      } else {
-        console.error('Failed to load security log:', result.error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Failed to Load Security Log',
-            message: result.error || 'Unable to fetch security events'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error loading security log:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to load security log'
-        });
-      }
-    }
-  };
-
-  const loadActivityData = async () => {
-    try {
-      const result = await profileService.getActivityLog();
-      
-      if (result.success) {
-        setActivityData(result.data);
-      } else {
-        console.error('Failed to load activity data:', result.error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Failed to Load Activity Data',
-            message: result.error || 'Unable to fetch activity data'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error loading activity data:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to load activity data'
-        });
-      }
-    }
-  };
-
-  const loadStats = async () => {
-    try {
-      const result = await profileService.getStats();
-      
-      if (result.success) {
-        setStats(result.data);
-      } else {
-        console.error('Failed to load stats:', result.error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Failed to Load Statistics',
-            message: result.error || 'Unable to fetch statistics'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error loading stats:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to load statistics'
-        });
-      }
-    }
-  };
-
-  // ========================
   // Handlers
   // ========================
   const handleEditStart = (field) => {
     setEditingField(field);
+    setFieldStatus(prev => ({ ...prev, [field]: { state: 'idle' } }));
   };
 
   const handleEditSave = async (field) => {
-    try {
-      const updateData = { [field]: editValues[field] };
-      const result = await profileService.updateProfile(updateData);
-      
-      if (result.success) {
-        // Update local user data
-        const updatedUser = { ...user, [field]: editValues[field] };
-        setUser(updatedUser);
-        setEditingField(null);
-        
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'success',
-            title: 'Profile Updated',
-            message: `${field} updated successfully`
-          });
-        }
-      } else {
-        console.error('Failed to update profile:', result.error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Update Failed',
-            message: result.error || 'Unable to update profile'
-          });
-        }
+    if (!user) return;
+    const value = editValues[field];
+
+    // Basic validation
+    if (field === 'email') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (value && !emailRegex.test(value)) {
+        setFieldStatus(prev => ({ ...prev, [field]: { state: 'error', message: 'Invalid email format' } }));
+        return;
       }
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to save changes'
-        });
-      }
+    }
+    if (field === 'name' && value.trim().length === 0) {
+      setFieldStatus(prev => ({ ...prev, [field]: { state: 'error', message: 'Username cannot be empty' } }));
+      return;
+    }
+
+    setFieldStatus(prev => ({ ...prev, [field]: { state: 'saving' } }));
+    const result = await profileService.updateProfile({ [field]: value });
+    if (result.success) {
+      setUser(prev => ({ ...prev, [field]: value }));
+      setFieldStatus(prev => ({ ...prev, [field]: { state: 'success' } }));
+      setGlobalMessage({ type: 'success', text: `${field === 'name' ? 'Username' : field} updated.` });
+      setTimeout(() => {
+        setFieldStatus(prev => ({ ...prev, [field]: { state: 'idle' } }));
+      }, 1500);
+      setEditingField(null);
+    } else {
+      setFieldStatus(prev => ({ ...prev, [field]: { state: 'error', message: result.error || 'Update failed' } }));
+      setGlobalMessage({ type: 'error', text: result.error || 'Failed to update field' });
     }
   };
 
   const handleEditCancel = (field) => {
-    setEditValues(prev => ({ ...prev, [field]: user[field] }));
+    setEditValues((prev) => ({ ...prev, [field]: user[field] }));
     setEditingField(null);
+    setFieldStatus(prev => ({ ...prev, [field]: { state: 'idle' } }));
+  };
+
+  const beginEditField = (field) => { /* disabled inline editing; using modal */ };
+
+  const openProfileModal = () => {
+    setProfileModalValues({
+      name: editValues.name || user?.name || '',
+      role: user?.role || 'student'
+    });
+    setShowProfileModal(true);
+  };
+
+  const closeProfileModal = () => {
+    if (!profileModalSaving) setShowProfileModal(false);
+  };
+
+  const handleProfileModalSave = async () => {
+    if (!user) return;
+    const payload = {};
+    if (profileModalValues.name !== user.name) payload.name = profileModalValues.name;
+    if (profileModalValues.role !== user.role) payload.role = profileModalValues.role;
+    if (Object.keys(payload).length === 0) {
+      setToast({ type: 'info', text: 'No changes to save.' });
+      autoHideToast();
+      setShowProfileModal(false);
+      return;
+    }
+    setProfileModalSaving(true);
+    const result = await profileService.updateProfile(payload);
+    if (result.success) {
+      setUser(prev => ({ ...prev, ...payload }));
+      setEditValues(prev => ({ ...prev, ...payload }));
+        setToast({ type: 'success', text: 'Updated profile' });
+      // Sync into authService stored user object for global usage (e.g., navbar)
+      try {
+        const stored = authService.getCurrentUser() || {};
+        const merged = { ...stored };
+        if (payload.name) merged.name = payload.name;
+        if (payload.role) merged.role = payload.role;
+        localStorage.setItem('user', JSON.stringify(merged));
+      } catch (e) { /* ignore storage issues */ }
+      // Broadcast custom event so other components can react without manual refresh
+      try {
+        window.dispatchEvent(new CustomEvent('maya:profile-updated', { detail: { updated: payload } }));
+      } catch (e) { /* noop */ }
+      setShowProfileModal(false);
+    } else {
+      setToast({ type: 'error', text: result.error || 'Update failed' });
+    }
+    setProfileModalSaving(false);
+    autoHideToast();
+  };
+
+  const autoHideToast = () => {
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  // API delete handlers (added)
+  const requestDeleteApi = (keyObj) => {
+    setApiDeleteTarget(keyObj);
+    setShowApiDeleteModal(true);
+  };
+
+  const confirmDeleteApi = async () => {
+    if (!apiDeleteTarget) return;
+    setApiDeleting(true);
+    const keyId = apiDeleteTarget.id || apiDeleteTarget._id;
+    const result = await profileService.deleteApiKey(keyId);
+    if (result.success) {
+      setApiKeys(prev => prev.filter(k => (k.id || k._id) !== keyId));
+      setToast({ type: 'success', text: 'Deleted API key' });
+    } else {
+      setToast({ type: 'error', text: result.error || 'Delete failed' });
+    }
+    setApiDeleting(false);
+    setShowApiDeleteModal(false);
+    setApiDeleteTarget(null);
+    autoHideToast();
+  };
+
+  const handleGlobalCancel = () => {
+    // revert all edited fields to original user values
+    if (!user) return;
+    setEditValues(prev => {
+      const next = { ...prev };
+      editingFields.forEach(f => { next[f] = user[f]; });
+      return next;
+    });
+    setEditingFields(new Set());
+    setEditingField(null);
+    setFieldStatus({});
+  };
+
+  const handleGlobalSave = async () => {
+    if (!user || editingFields.size === 0) return;
+    const payload = {};
+    editingFields.forEach(f => {
+      if (f !== 'email' && editValues[f] !== user[f]) {
+        payload[f] = editValues[f];
+      }
+    });
+    if (Object.keys(payload).length === 0) {
+      setGlobalMessage({ type: 'success', text: 'No changes to save.' });
+      setEditingFields(new Set());
+      return;
+    }
+    setSavingProfile(true);
+    const result = await profileService.updateProfile(payload);
+    if (result.success) {
+      setUser(prev => ({ ...prev, ...payload }));
+      setGlobalMessage({ type: 'success', text: 'Profile updated.' });
+        setEditingFields(new Set());
+      setFieldStatus({});
+    } else {
+      setGlobalMessage({ type: 'error', text: result.error || 'Failed to update profile' });
+    }
+    setSavingProfile(false);
+  };
+
+  // ========================
+  // API Key Management
+  // ========================
+  const providers = [
+    { id: 'gemini', label: 'Gemini', icon: <Brain size={18} />, desc: 'Google Gemini AI' },
+    { id: 'cohere', label: 'Cohere', icon: <Brain size={18} />, desc: 'Cohere NLP' },
+    { id: 'anthropic', label: 'Anthropic', icon: <Brain size={18} />, desc: 'Claude / Anthropic' },
+    { id: 'youtube', label: 'YouTube', icon: <Youtube size={18} />, desc: 'YouTube Data API' },
+    { id: 'news', label: 'News', icon: <Globe2 size={18} />, desc: 'News API' },
+    { id: 'weather', label: 'Weather', icon: <CloudRain size={18} />, desc: 'Weather API' }
+  ];
+
+  const openAddApiModal = () => {
+    setShowApiModal(true);
+    setApiModalStep(1);
+    setSelectedProvider(null);
+    setNewApiData({ name: '', key: '', description: '' });
+    setApiError(null);
+  };
+
+  const handleProviderSelect = (prov) => {
+    setSelectedProvider(prov);
+    setApiModalStep(2);
+  };
+
+  const handleSaveApi = async () => {
+    if (!selectedProvider) return;
+    if (!newApiData.key.trim()) {
+      setApiError('API key is required');
+      return;
+    }
+    setApiSaving(true);
+    setApiError(null);
+    const payload = {
+      provider: selectedProvider.id,
+      external_key: newApiData.key.trim(),
+      name: newApiData.name.trim() || selectedProvider.label,
+      description: newApiData.description.trim() || undefined
+    };
+    const result = await profileService.createApiKey(payload);
+    if (result.success) {
+      // Construct a client-side representation since backend returns limited fields
+      const preview = result.data?.key_preview || result.data?.keyPreview || '••••';
+      const newKey = {
+        id: crypto.randomUUID(),
+        name: payload.name,
+        description: payload.description,
+        provider: payload.provider,
+        key_preview: preview,
+        created_at: new Date().toISOString(),
+        is_active: true
+      };
+      setApiKeys(prev => [newKey, ...prev]);
+      setShowApiModal(false);
+      setGlobalMessage({ type: 'success', text: `${selectedProvider.label} API added.` });
+    } else {
+      setApiError(result.error || 'Failed to save API key');
+    }
+    setApiSaving(false);
+  };
+
+  const handleDeleteApi = async (keyId) => {
+    if (!window.confirm('Delete this API key?')) return;
+    const result = await profileService.deleteApiKey(keyId);
+    if (result.success) {
+      setApiKeys(prev => prev.filter(k => k.id !== keyId && k._id !== keyId));
+      setGlobalMessage({ type: 'success', text: 'API key removed.' });
+    } else {
+      setGlobalMessage({ type: 'error', text: result.error || 'Failed to delete key' });
+    }
+  };
+
+  // ========================
+  // Custom Stats Editing (local only)
+  // ========================
+  const handleStatChange = (field, value) => {
+    setCustomStats(prev => {
+      const next = { ...prev, [field]: value };
+      localStorage.setItem('maya_custom_stats', JSON.stringify(next));
+      return next;
+    });
   };
 
   const handleAvatarChange = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setUser(prev => ({ ...prev, avatar: e.target.result }));
-        // Here you would upload the file to your server
-      };
-      reader.readAsDataURL(file);
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setAvatarError(null);
+    // Client-side validation
+    const allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+    if (!allowed.includes(file.type)) {
+      setToast({ type: 'error', text: 'Unsupported image type' });
+      autoHideToast();
+      return;
     }
-  };
-
-  const handleGenerateApiKey = async () => {
-    if (!newKeyLabel.trim()) return;
-
-    try {
-      const result = await profileService.createApiKey({
-        label: newKeyLabel.trim()
-      });
-
+    if (file.size > 5 * 1024 * 1024) { // 5MB
+      setToast({ type: 'error', text: 'Image too large (max 5MB)' });
+      autoHideToast();
+      return;
+    }
+    setAvatarUploading(true);
+    (async () => {
+      const result = await profileService.uploadAvatar(file);
       if (result.success) {
-        const newKey = result.data;
-        await loadApiKeys(); // Reload API keys list
-        setGeneratedKey(newKey.key);
-        setNewKeyLabel('');
-        setShowNewKeyForm(false);
-
-        // Show the key once
-        setShowKeyValue(prev => ({ ...prev, [newKey._id]: true }));
-        
-        // Hide after 30 seconds for security
-        setTimeout(() => {
-          setShowKeyValue(prev => ({ ...prev, [newKey._id]: false }));
-        }, 30000);
-
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'success',
-            title: 'API Key Created',
-            message: 'New API key generated successfully'
-          });
+        const avatarUrl = result.data?.avatar_url || result.data?.avatarUrl;
+        if (avatarUrl) {
+          setUser(prev => ({ ...prev, avatar_url: avatarUrl }));
+          try {
+            const stored = authService.getCurrentUser() || {};
+            const merged = { ...stored, avatar_url: avatarUrl };
+            localStorage.setItem('user', JSON.stringify(merged));
+          } catch {}
+          try {
+            window.dispatchEvent(new CustomEvent('maya:profile-updated', { detail: { updated: { avatar_url: avatarUrl } } }));
+          } catch {}
         }
+        setToast({ type: 'success', text: 'Updated profile' });
       } else {
-        console.error('Failed to create API key:', result.error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Failed to Create API Key',
-            message: result.error || 'Unable to generate API key'
-          });
-        }
+        setToast({ type: 'error', text: result.error || 'Avatar upload failed' });
+        setAvatarError(result.error || 'Upload failed');
       }
-    } catch (error) {
-      console.error('Error generating API key:', error);
-      if (window.addNotification) {
-        window.addNotification({
-          type: 'error',
-          title: 'Network Error',
-          message: 'Unable to create API key'
-        });
-      }
-    }
+      setAvatarUploading(false);
+      autoHideToast();
+    })();
   };
 
-  const handleRevokeApiKey = async (keyId) => {
-    if (window.confirm('Are you sure you want to revoke this API key? This action cannot be undone.')) {
-      try {
-        const result = await profileService.deleteApiKey(keyId);
-        
-        if (result.success) {
-          await loadApiKeys(); // Reload API keys list
-          if (window.addNotification) {
-            window.addNotification({
-              type: 'success',
-              title: 'API Key Revoked',
-              message: 'API key has been revoked successfully'
-            });
-          }
-        } else {
-          console.error('Failed to revoke API key:', result.error);
-          if (window.addNotification) {
-            window.addNotification({
-              type: 'error',
-              title: 'Failed to Revoke API Key',
-              message: result.error || 'Unable to revoke API key'
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error revoking API key:', error);
-        if (window.addNotification) {
-          window.addNotification({
-            type: 'error',
-            title: 'Network Error',
-            message: 'Unable to revoke API key'
-          });
-        }
-      }
-    }
+  const handleDelete = (type) => {
+    setDeleteType(type);
+    setShowDeleteModal(true);
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    console.log('Copied to clipboard');
-  };
-
-  const toggleKeyVisibility = (keyId) => {
-    setShowKeyValue(prev => ({ ...prev, [keyId]: !prev[keyId] }));
+  const confirmDelete = () => {
+    setShowDeleteModal(false);
+    setDeleteType('');
+    // TODO: call backend to delete specific memory
   };
 
   // ========================
-  // Render Components
+  // Render Helpers
   // ========================
-  const renderEditableField = (field, label, value, type = 'text', multiline = false) => {
-    const isEditing = editingField === field;
-
-    return (
-      <div className="profile-field">
-        <label className="field-label">{label}</label>
-        
-        {isEditing ? (
-          <div className="field-edit-container">
-            {multiline ? (
-              <textarea
-                ref={el => editInputRefs.current[field] = el}
-                value={editValues[field] || ''}
-                onChange={(e) => setEditValues(prev => ({ ...prev, [field]: e.target.value }))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleEditSave(field);
-                  } else if (e.key === 'Escape') {
-                    handleEditCancel(field);
-                  }
-                }}
-                rows={3}
-                className="field-input"
-              />
-            ) : (
-              <input
-                ref={el => editInputRefs.current[field] = el}
-                type={type}
-                value={editValues[field] || ''}
-                onChange={(e) => setEditValues(prev => ({ ...prev, [field]: e.target.value }))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleEditSave(field);
-                  } else if (e.key === 'Escape') {
-                    handleEditCancel(field);
-                  }
-                }}
-                className="field-input"
-              />
-            )}
-            
-            <div className="field-actions">
-              <button
-                className="field-action-button save"
-                onClick={() => handleEditSave(field)}
-                title="Save (Enter)"
-              >
-                <Save size={14} />
-              </button>
-              <button
-                className="field-action-button cancel"
-                onClick={() => handleEditCancel(field)}
-                title="Cancel (Esc)"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="field-display-container">
-            <span className="field-value">{value || 'Not set'}</span>
-            <button
-              className="field-edit-button"
-              onClick={() => handleEditStart(field)}
-              title={`Edit ${label.toLowerCase()}`}
-            >
-              <Edit3 size={14} />
-            </button>
-          </div>
-        )}
+  const renderEditableField = (field, label, value, { icon = <User size={20} /> } = {}) => (
+    <div className="info-item">
+      {icon}
+      <div className="info-details">
+        <label>{label}</label>
+        <div className="display-row"><p>{value || 'Not set'}</p></div>
       </div>
-    );
-  };
-
-  const renderStatsCard = (title, value, subtitle, icon) => (
-    <motion.div
-      className="stats-card"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: reducedMotion ? 0 : 0.3 }}
-    >
-      <div className="stats-icon">{icon}</div>
-      <div className="stats-content">
-        <div className="stats-value">{value}</div>
-        <div className="stats-title">{title}</div>
-        {subtitle && <div className="stats-subtitle">{subtitle}</div>}
-      </div>
-    </motion.div>
+    </div>
   );
 
   // ========================
-  // Main Render
+  // Render
   // ========================
-  if (isLoading) {
-    return (
-      <div className="profile-loading">
-        <div className="loading-spinner" />
-        <span>Loading profile...</span>
-      </div>
-    );
-  }
+  if (!user) return <div>Loading profile...</div>;
 
   return (
-    <div className="profile-interface">
-      {/* Header */}
+    <div className="profile-page">
       <div className="profile-header">
-        <button className="back-button" onClick={() => window.history.back()}>
-          <ArrowLeft size={20} />
-          <span>Back</span>
+        <button
+          className="profile-back-btn"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
+          <ArrowLeft size={18} />
+          <span className="profile-back-text">Back</span>
         </button>
         <h1>Profile</h1>
+        <div className="profile-header-actions" />
       </div>
 
       <div className="profile-content">
         {/* Profile Card */}
-        <motion.div
-          className="profile-card"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.4 }}
-        >
+        <div className="profile-card">
           <div className="profile-avatar-section">
-            <div className="avatar-container">
-              {user.avatar ? (
-                <img src={user.avatar} alt={user.name} className="profile-avatar" />
+            <div className="avatar-wrapper">
+              {user.avatar_url ? (
+                <img src={user.avatar_url} alt="avatar" className="profile-avatar-large" />
               ) : (
-                <div className="profile-avatar-placeholder">
-                  {user.name?.split(' ').map(n => n[0]).join('') || 'U'}
+                <div className="profile-avatar-large">
+                  {user.name?.split(' ').map((n) => n[0]).join('').slice(0,2)}
                 </div>
               )}
-              <button
-                className="avatar-edit-button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Change avatar"
-              >
-                <Camera size={16} />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleAvatarChange}
-                style={{ display: 'none' }}
-              />
+              {avatarUploading && <div className="avatar-overlay"><Loader2 size={32} className="spin" /></div>}
             </div>
-            
-            <div className="profile-basic-info">
-              <h2>{user.name}</h2>
-              <p className="profile-email">{user.email}</p>
-              <p className="profile-joined">
-                Member since {new Date(user.joinedDate).toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-
-          {/* Editable Fields */}
-          <div className="profile-fields">
-            {renderEditableField('name', 'Full Name', user.name)}
-            {renderEditableField('email', 'Email Address', user.email, 'email')}
-            {renderEditableField('role', 'Role', user.role)}
-            {renderEditableField('location', 'Location', user.location)}
-            {renderEditableField('bio', 'Bio', user.bio, 'text', true)}
-          </div>
-        </motion.div>
-
-        {/* Stats */}
-        <motion.div
-          className="profile-stats"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.4, delay: 0.1 }}
-        >
-          <h3>Statistics</h3>
-          <div className="stats-grid">
-            {renderStatsCard(
-              'Total Chats',
-              stats.totalChats,
-              'AI conversations',
-              <Activity size={20} />
-            )}
-            {renderStatsCard(
-              'Tasks Completed',
-              `${stats.completedTasks}/${stats.totalTasks}`,
-              `${Math.round((stats.completedTasks / stats.totalTasks) * 100)}% completion rate`,
-              <Check size={20} />
-            )}
-            {renderStatsCard(
-              'Active Streak',
-              `${stats.streakDays} days`,
-              'Keep it up!',
-              <Calendar size={20} />
-            )}
-            {renderStatsCard(
-              'Last Active',
-              stats.lastActiveTime,
-              `Avg session: ${stats.averageSessionLength}`,
-              <Activity size={20} />
-            )}
-          </div>
-        </motion.div>
-
-        {/* API Keys Management */}
-        <motion.div
-          className="api-keys-section"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.4, delay: 0.2 }}
-        >
-          <div className="section-header">
-            <h3>API Keys</h3>
-            <button
-              className="add-key-button"
-              onClick={() => setShowNewKeyForm(true)}
-            >
-              <Plus size={16} />
-              <span>Generate New Key</span>
+            <button className="change-photo-btn" disabled={avatarUploading} onClick={() => fileInputRef.current?.click()}>
+              <Camera size={16} /> {avatarUploading ? 'Uploading...' : 'Change Photo'}
             </button>
+            {avatarError && <div className="field-error" style={{textAlign:'center'}}>{avatarError}</div>}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleAvatarChange}
+            />
           </div>
 
-          {/* New Key Form */}
-          <AnimatePresence>
-            {showNewKeyForm && (
-              <motion.div
-                className="new-key-form"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: reducedMotion ? 0 : 0.3 }}
-              >
-                <input
-                  type="text"
-                  placeholder="Key label (e.g., 'Production API')"
-                  value={newKeyLabel}
-                  onChange={(e) => setNewKeyLabel(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleGenerateApiKey()}
-                />
-                <div className="form-actions">
-                  <button onClick={handleGenerateApiKey} disabled={!newKeyLabel.trim()}>
-                    Generate
-                  </button>
-                  <button onClick={() => setShowNewKeyForm(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </motion.div>
+          <div className="profile-info-section">
+            {globalMessage && (
+              <div className={`profile-global-message ${globalMessage.type}`}>{globalMessage.text}</div>
             )}
-          </AnimatePresence>
+            {renderEditableField('name', 'Username', user.name, { editable: false })}
+            {renderEditableField('user_id', 'User ID', user.user_id || user._id, { editable: false, readOnly: true })}
+            {/* Email purely from auth store if available */}
+            <div className="info-item">
+              <User size={20} />
+              <div className="info-details">
+                <label>Email</label>
+                <div className="display-row"><p>{(authService.getCurrentUser()?.username) || (authService.getCurrentUser()?.email) || user.email || 'Not set'}</p></div>
+              </div>
+            </div>
+            {/* Role Field (modal trigger) */}
+            <div className="info-item role-item">
+              <User size={20} />
+              <div className="info-details">
+                <label>Role</label>
+                <div className="display-row"><p>{roleOptions.find(r => r.value === user.role)?.label || 'Not set'}</p></div>
+              </div>
+            </div>
 
-          {/* Generated Key Alert */}
-          <AnimatePresence>
-            {generatedKey && (
-              <motion.div
-                className="generated-key-alert"
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: reducedMotion ? 0 : 0.3 }}
-              >
-                <AlertTriangle size={16} />
-                <div>
-                  <strong>Important:</strong> This is the only time you'll see this key. 
-                  Make sure to copy it now.
+            <div className="single-edit-launch dual">
+              <button className="btn-primary" onClick={openProfileModal}>Edit Profile</button>
+              <button className="btn-primary" onClick={openAddApiModal}><Plus size={16} /> Add API</button>
+            </div>
+
+            {/* Removed bulk save bar in favor of modal-based editing */}
+
+            {/* API Keys moved here */}
+            <div className="embedded-api-section">
+              <h2 className="embedded-section-title">Connected APIs</h2>
+              <div className="api-helper-text">Manage external API integrations you have added.</div>
+              {apiLoading ? (
+                <div className="api-loading">Loading APIs...</div>
+              ) : (
+                <div className="api-keys-list">
+                  {apiKeys.length === 0 && (
+                    <div className="empty-api">No APIs added yet. Click <strong>Add API</strong> to connect one.</div>
+                  )}
+                  {apiKeys.map(key => {
+                    const provider = providers.find(p => p.id === key.provider) || { label: key.provider };
+                    const masked = key.key_preview || (key.key ? key.key.replace(/.(?=.{4})/g, '*') : '••••');
+                    return (
+                      <div key={key.id || key._id} className="api-key-item">
+                        <div className="api-key-left">
+                          <div className="api-provider-icon">{provider.icon || <Plug size={14} />}</div>
+                          <div className="api-key-meta">
+                            <div className="api-key-name">{key.name || provider.label}</div>
+                            <div className="api-key-mask">{masked}</div>
+                          </div>
+                        </div>
+                        <div className="api-key-actions">
+                          <button className="api-delete-btn" onClick={() => requestDeleteApi(key)} aria-label="Delete API Key">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <button onClick={() => setGeneratedKey(null)}>
-                  <X size={16} />
+              )}
+            </div>
+          </div>
+        </div>
+        {/* Stats (read-only now) */}
+        <div className="stats-card live">
+          <div className="stats-header-row">
+            <h2>Usage Statistics</h2>
+            <button className="stat-refresh-btn" onClick={() => { if(!statsAnimatingRef.current) { lastStatsRef.current = displayStats; } profileService.getUserStats().then(r=>{ if(r.success){ const raw=r.data||{}; const normalized={ totalChats: raw.total_chats??0, completedTasks: raw.completed_tasks??0, totalTasks: raw.total_tasks??0 }; normalized.usageRate = normalized.totalTasks>0 ? (normalized.completedTasks/normalized.totalTasks)*100 : 0; setStats(normalized);} }); }} aria-label="Refresh stats">↻</button>
+          </div>
+          <div className="stats-grid live">
+            <div className="stat-item live">
+              <div className="stat-top">
+                <div className="stat-icon gradient-a"><MessageSquare size={20} /></div>
+                <div className="stat-metric">
+                  <span className="stat-value animated" data-label="Total Chats">{formatNumber(displayStats.totalChats)}</span>
+                  <span className="stat-label">Total Chats</span>
+                </div>
+              </div>
+              <div className="stat-bar-wrapper" aria-label={`Total chats ${displayStats.totalChats}`}> 
+                <div className="stat-bar-bg"><div className="stat-bar-fill" style={{ width: (displayStats.totalChats ? 100 : 0) + '%'}} /></div>
+              </div>
+            </div>
+            <div className="stat-item live">
+              <div className="stat-top">
+                <div className="stat-icon gradient-b"><CheckCircle size={20} /></div>
+                <div className="stat-metric">
+                  <span className="stat-value animated" data-label="Completed Tasks">{formatNumber(displayStats.completedTasks)}</span>
+                  <span className="stat-label">Completed Tasks</span>
+                </div>
+              </div>
+              <div className="stat-bar-wrapper" aria-label={`Completed tasks ${displayStats.completedTasks}`}> 
+                <div className="stat-bar-bg"><div className="stat-bar-fill alt" style={{ width: stats.totalTasks ? (displayStats.completedTasks / (stats.totalTasks||1))*100 + '%' : '0%' }} /></div>
+                <div className="stat-mini-note">{stats.totalTasks ? `${displayStats.completedTasks}/${stats.totalTasks}` : '0/0'}</div>
+              </div>
+            </div>
+            <div className="stat-item live">
+              <div className="stat-top">
+                <div className="stat-icon gradient-c"><TrendingUp size={20} /></div>
+                <div className="stat-metric">
+                  <span className="stat-value animated" data-label="Usage Rate">{usageRateDisplay}</span>
+                  <span className="stat-label">Usage Rate</span>
+                </div>
+              </div>
+              <div className="rate-ring" role="img" aria-label={`Usage rate ${usageRateDisplay}`}>
+                <svg viewBox="0 0 36 36" className="ring-svg">
+                  <path className="ring-bg" d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32" />
+                  <path className="ring-fg" strokeDasharray={`${Math.max(2, Math.min(100, displayStats.usageRate)).toFixed(1)}, 100`} d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32" />
+                </svg>
+                <div className="ring-center">{Math.round(displayStats.usageRate)}%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Memory Management */}
+        <div className="memory-card">
+          <h2>Memory Management</h2>
+          <p className="memory-description">
+            Manage your conversation memory and data. Deleting memory will remove stored context and preferences.
+          </p>
+
+          <div className="memory-actions">
+            {['short-term', 'long-term', 'semantic', 'all'].map((type) => (
+              <div key={type} className={`memory-item ${type === 'all' ? 'danger' : ''}`}>
+                <div className="memory-info">
+                  <h3>{type === 'all' ? 'Delete All Data' : `${type.replace('-', ' ')} Memory`}</h3>
+                  <p>
+                    {type === 'short-term' && 'Current conversation context'}
+                    {type === 'long-term' && 'Historical conversation data'}
+                    {type === 'semantic' && 'Learned preferences and patterns'}
+                    {type === 'all' && 'Permanently remove all stored information'}
+                  </p>
+                </div>
+                <button className={`delete-btn ${type === 'all' ? 'danger' : ''}`} onClick={() => handleDelete(type)}>
+                  <Trash2 size={18} /> Delete
                 </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* API Keys List */}
-          <div className="api-keys-list">
-            {apiKeys.map((apiKey) => (
-              <motion.div
-                key={apiKey._id}
-                className="api-key-item"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: reducedMotion ? 0 : 0.2 }}
-              >
-                <div className="key-info">
-                  <div className="key-label">{apiKey.label}</div>
-                  <div className="key-details">
-                    <span>Created: {apiKey.created}</span>
-                    {apiKey.lastUsed && (
-                      <span>Last used: {apiKey.lastUsed}</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="key-value">
-                  {showKeyValue[apiKey._id] ? (
-                    <code className="key-display">{apiKey.key}</code>
-                  ) : (
-                    <code className="key-display">
-                      {apiKey.key.substring(0, 8)}{'*'.repeat(20)}{apiKey.key.substring(-4)}
-                    </code>
-                  )}
-                </div>
-
-                <div className="key-actions">
-                  <button
-                    onClick={() => toggleKeyVisibility(apiKey._id)}
-                    title={showKeyValue[apiKey._id] ? 'Hide key' : 'Show key'}
-                  >
-                    {showKeyValue[apiKey._id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                  <button
-                    onClick={() => copyToClipboard(apiKey.key)}
-                    title="Copy key"
-                  >
-                    <Copy size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleRevokeApiKey(apiKey._id)}
-                    className="danger"
-                    title="Revoke key"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-
-            {apiKeys.length === 0 && (
-              <div className="empty-state">
-                <Key size={32} />
-                <p>No API keys generated yet</p>
-                <span>Generate your first API key to get started</span>
-              </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Recent Activity */}
-        <motion.div
-          className="activity-section"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.4, delay: 0.3 }}
-        >
-          <h3>Recent Activity</h3>
-          <div className="activity-list">
-            {activityData.slice(0, 5).map((activity) => (
-              <div key={activity._id} className="activity-item">
-                <div className="activity-icon">
-                  <Activity size={16} />
-                </div>
-                <div className="activity-content">
-                  <div className="activity-description">{activity.description}</div>
-                  <div className="activity-timestamp">
-                    {activity.timestamp.toLocaleString()}
-                  </div>
-                </div>
               </div>
             ))}
           </div>
-        </motion.div>
-
-        {/* Security Log */}
-        <motion.div
-          className="security-section"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.4, delay: 0.4 }}
-        >
-          <h3>Security Log</h3>
-          <div className="security-list">
-            {securityLog.slice(0, 10).map((entry) => (
-              <div 
-                key={entry._id} 
-                className={`security-item ${entry.status}`}
-              >
-                <div className="security-icon">
-                  {entry.status === 'success' ? (
-                    <Shield size={16} />
-                  ) : (
-                    <AlertTriangle size={16} />
-                  )}
-                </div>
-                <div className="security-content">
-                  <div className="security-event">{entry.event}</div>
-                  <div className="security-details">
-                    <span>{entry.timestamp.toLocaleString()}</span>
-                    <span>{entry.ip}</span>
-                    <span>{entry.location}</span>
-                    <span>{entry.device}</span>
-                  </div>
-                </div>
-                <div className={`security-status ${entry.status}`}>
-                  {entry.status}
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h3>Confirm Deletion</h3>
+            <p>
+              Are you sure you want to delete {deleteType === 'all' ? 'all your data' : `your ${deleteType} memory`}? This action cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setShowDeleteModal(false)}>Cancel</button>
+              <button className="btn-danger" onClick={confirmDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProfileModal && (
+        <div className="modal-overlay" onClick={closeProfileModal}>
+          <div className="modal-content profile-edit-modal" onClick={(e)=>e.stopPropagation()}>
+            <h3>Edit Profile Details</h3>
+            <div className="profile-modal-body">
+              <label className="modal-field">
+                <span>Username</span>
+                <input
+                  value={profileModalValues.name}
+                  onChange={e => setProfileModalValues(v => ({ ...v, name: e.target.value }))}
+                  placeholder="Enter username"
+                />
+              </label>
+              <label className="modal-field">
+                <span>Role</span>
+                <select
+                  value={profileModalValues.role}
+                  onChange={e => setProfileModalValues(v => ({ ...v, role: e.target.value }))}
+                  className="role-select"
+                >
+                  {roleOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={closeProfileModal} disabled={profileModalSaving}>Cancel</button>
+              <button className="btn-primary" onClick={handleProfileModalSave} disabled={profileModalSaving}>
+                {profileModalSaving ? <Loader2 size={16} className="spin" /> : <Check size={16} />} Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`profile-toast ${toast.type}`}> {toast.text} </div>
+      )}
+
+      {showApiModal && (
+        <div className="modal-overlay" onClick={() => setShowApiModal(false)}>
+          <div className="modal-content api-modal" onClick={(e) => e.stopPropagation()}>
+            {apiModalStep === 1 && (
+              <>
+                <h3>Select API Provider</h3>
+                <div className="provider-grid">
+                  {providers.map(p => (
+                    <button
+                      key={p.id}
+                      className="provider-card"
+                      onClick={() => handleProviderSelect(p)}
+                    >
+                      <div className="provider-icon">{p.icon}</div>
+                      <div className="provider-info">
+                        <span className="provider-name">{p.label}</span>
+                        <span className="provider-desc">{p.desc}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {apiModalStep === 2 && selectedProvider && (
+              <>
+                <h3>Add {selectedProvider.label} API</h3>
+                <div className="api-form">
+                  <label>
+                    <span>Name (optional)</span>
+                    <input
+                      value={newApiData.name}
+                      onChange={(e) => setNewApiData(d => ({ ...d, name: e.target.value }))}
+                      placeholder={`${selectedProvider.label} Key`}
+                    />
+                  </label>
+                  <label>
+                    <span>API Key</span>
+                    <input
+                      value={newApiData.key}
+                      onChange={(e) => setNewApiData(d => ({ ...d, key: e.target.value }))}
+                      placeholder="Paste your API key"
+                    />
+                  </label>
+                  <label>
+                    <span>Description (optional)</span>
+                    <textarea
+                      rows={3}
+                      value={newApiData.description}
+                      onChange={(e) => setNewApiData(d => ({ ...d, description: e.target.value }))}
+                      placeholder="Short description"
+                    />
+                  </label>
+                  {apiError && <div className="field-error" style={{ marginTop: 4 }}>{apiError}</div>}
+                </div>
+                <div className="modal-actions api">
+                  <button className="btn-secondary" onClick={() => { setApiModalStep(1); setSelectedProvider(null); }}>Back</button>
+                  <button className="btn-secondary" onClick={() => setShowApiModal(false)}>Cancel</button>
+                  <button className="btn-primary" disabled={apiSaving} onClick={handleSaveApi}>
+                    {apiSaving ? <Loader2 size={16} className="spin" /> : <Key size={16} />} Save
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showApiDeleteModal && apiDeleteTarget && (
+        <div className="modal-overlay" onClick={()=> !apiDeleting && setShowApiDeleteModal(false)}>
+          <div className="modal-content api-delete-modal" onClick={e=>e.stopPropagation()}>
+            <h3>Delete API Key</h3>
+            <p className="api-delete-text">Are you sure you want to delete <strong>{apiDeleteTarget.name || apiDeleteTarget.provider || 'this key'}</strong>? This action cannot be undone.</p>
+            <div className="modal-actions">
+              <button className="btn-secondary" disabled={apiDeleting} onClick={()=> setShowApiDeleteModal(false)}>Cancel</button>
+              <button className="btn-danger" disabled={apiDeleting} onClick={confirmDeleteApi}>{apiDeleting ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />} Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default ProfileInterface;
+export default Profile;

@@ -23,6 +23,11 @@ import {
   Check
 } from 'lucide-react';
 import '../styles/ChatWindowNew.css';
+import VideoEmbed from './VideoEmbed';
+import videoControls from '../services/videoControlsService';
+import { VideoPiPProvider, useVideoPiP } from '../context/VideoPiPContext';
+import VideoMiniPlayer from './VideoMiniPlayer';
+import apiClient from '../services/api';
 
 // Animation Variants
 const messageVariants = {
@@ -111,13 +116,38 @@ const typingVariants = {
 };
 
 // Message Component
-const ChatMessage = ({ message, index, onCopy, onLike, onFeedback, onSpeak, onEdit, feedbackState, copiedIndex, likedMessages, speakingIndex }) => {
+const ChatMessage = ({ message, index, onCopy, onLike, onFeedback, onSpeak, onEdit, feedbackState, copiedIndex, likedMessages, speakingIndex, onSystemAppend, activeSessionId }) => {
   const [showActions, setShowActions] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const messageRef = useRef(null);
   const dropdownRef = useRef(null);
   const isInView = useInView(messageRef, { once: true, margin: "-50px" });
+  const videoRef = useRef(null);
+  const videoInViewport = useInView(videoRef, { margin: "-30% 0px -30% 0px" });
+  const { activate, deactivate, pipActive, video: pipVideo } = useVideoPiP();
+
+  // Auto PiP activation/deactivation for this message's video
+  useEffect(() => {
+    const vid = (message.youtube && message.youtube.videoId) || (message.video && message.video.videoId);
+    const title = (message.youtube && message.youtube.title) || (message.video && message.video.title);
+    if (!vid) return;
+    // If video scrolled out of viewport and not already active with same video, activate PiP
+    if (videoRef.current && videoInViewport === false) {
+      if (!pipActive || (pipVideo && pipVideo.videoId !== vid)) {
+        const restoreFn = () => {
+          try { videoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+        };
+        activate({ videoId: vid, title, sessionId: activeSessionId }, restoreFn);
+      }
+    }
+    // If video is visible again and PiP is active for this video, deactivate
+    if (videoRef.current && videoInViewport === true) {
+      if (pipActive && pipVideo && pipVideo.videoId === vid) {
+        deactivate();
+      }
+    }
+  }, [videoInViewport, message, activate, deactivate, pipActive, pipVideo, activeSessionId]);
 
   const isUser = message.sender === 'user';
   const isAssistant = message.sender === 'assistant';
@@ -138,7 +168,7 @@ const ChatMessage = ({ message, index, onCopy, onLike, onFeedback, onSpeak, onEd
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDropdown]);
-
+  
   return (
     <motion.div
       ref={messageRef}
@@ -230,6 +260,51 @@ const ChatMessage = ({ message, index, onCopy, onLike, onFeedback, onSpeak, onEd
             transition={{ delay: 0.2, duration: 0.5 }}
           >
             {message.text}
+            {/* Inline server-provided video embedding parity (after text) */}
+            {(
+              // Prefer explicit youtube payload
+              (message.youtube && message.youtube.videoId) ||
+              // Or a generic `video` payload from backend
+              (message.video && message.video.videoId)
+            ) && (
+              <div className="video-embed-container" style={{ marginTop: 12 }} ref={videoRef}>
+                <VideoEmbed
+                  videoId={(message.youtube && message.youtube.videoId) || (message.video && message.video.videoId)}
+                  title={(message.youtube && message.youtube.title) || (message.video && message.video.title)}
+                  autoplay={Boolean((message.youtube && message.youtube.autoplay) || (message.video && message.video.autoplay))}
+                />
+                {/* Interactive controls */}
+                <div className="video-controls" style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'play', label: '⏯️ Play / Pause' },
+                    { key: 'replay', label: '🔁 Replay' },
+                    { key: 'next', label: '⏭️ Next' },
+                    { key: 'lyrics', label: '🗒️ Show Lyrics' },
+                  ].map(btn => (
+                    <button
+                      key={btn.key}
+                      className="video-ctrl-btn"
+                      style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer' }}
+                      onClick={async () => {
+                        const vid = (message.youtube && message.youtube.videoId) || (message.video && message.video.videoId);
+                        const title = (message.youtube && message.youtube.title) || (message.video && message.video.title);
+                        const ctx = { videoId: vid, title, sessionId: activeSessionId };
+                        if (btn.key === 'play') {
+                          // Toggle purely on UI: decide resume/pause by simple heuristic (no state tracked here)
+                          const res = await videoControls.sendControl('play', ctx);
+                          onSystemAppend?.(res, index);
+                          return;
+                        }
+                        const res = await videoControls.sendControl(btn.key, ctx);
+                        onSystemAppend?.(res, index);
+                      }}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </motion.div>
 
           {/* Message decorations */}
@@ -615,6 +690,11 @@ const ChatWindow = ({
   const [speakingIndex, setSpeakingIndex] = useState(null);
   const [feedbackState, setFeedbackState] = useState({});
   const [feedbackNotifications, setFeedbackNotifications] = useState([]);
+  const [localMessages, setLocalMessages] = useState(messages);
+  // Local assistant augmentations (e.g., picked video cards)
+  const [augmented, setAugmented] = useState([]);
+  // Remember last media context to support follow-ups like "next song" or language changes
+  const [mediaContext, setMediaContext] = useState({ lastMovie: null, lastTitle: null, lastVideoId: null, lastLanguage: null });
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -632,6 +712,168 @@ const ChatWindow = ({
       }
     }
   }, [messages]);
+
+  // Compose upstream messages plus local augmentations for rendering
+  const combinedMessages = React.useMemo(() => [...messages, ...augmented], [messages, augmented]);
+
+  // append a system message and/or swap video based on control responses
+  const handleSystemAppend = useCallback((res, idx) => {
+    if (!res) return;
+    const sysMsg = {
+      sender: 'assistant',
+      text: res.response_text || '',
+    };
+    if (res.video && res.video.videoId) {
+      sysMsg.video = res.video;
+    }
+    if (res.lyrics) {
+      sysMsg.text = `${sysMsg.text ? sysMsg.text + '\n\n' : ''}${res.lyrics}`;
+    }
+    // Append locally so UI reflects control responses immediately
+    setAugmented(prev => {
+      const arr = [...prev, sysMsg];
+      if (res.video && res.video.videoId) {
+        arr.push({ sender: 'assistant', video: { ...res.video, autoplay: true }, text: '' });
+        setMediaContext(mc => ({ ...mc, lastVideoId: res.video.videoId, lastTitle: res.video.title || mc.lastTitle }));
+      }
+      return arr;
+    });
+    if (typeof window !== 'undefined') requestAnimationFrame(() => {
+      try { chatWindowRef.current?.scrollTo?.({ top: chatWindowRef.current.scrollHeight, behavior: 'smooth' }); } catch {}
+    });
+  }, [messages]);
+
+  // ----- Media intent parsing helpers -----
+  const parsePlayIntent = useCallback((text) => {
+    if (!text) return {};
+    const t = text.toLowerCase();
+    const intent = /(play|watch|open)\b/.test(t) ? 'PlayVideo' : null;
+    if (!intent) return {};
+    let language = null;
+    if (/\btamil\b/.test(t) || /\bhayyoda\b/.test(t)) language = 'tamil';
+    else if (/\bhindi\b/.test(t)) language = 'hindi';
+    else if (/\btelugu\b/.test(t)) language = 'telugu';
+    let movie = null;
+    const mv = t.match(/from\s+([\w\s]+?)(?:\s+(?:movie|film)|$)/);
+    if (mv && mv[1]) movie = mv[1].trim();
+    let title = null;
+    const afterPlay = t.split(/play\s+/)[1] || t;
+    if (afterPlay) {
+      const cut = afterPlay.split(/\s+from\s+/)[0];
+      title = (cut || '').replace(/\b(song|video|the|please|official|video song|full)\b/g, '').trim();
+      if (!title) title = null;
+    }
+    let version = null;
+    if (/\btamil\b/.test(t)) version = 'tamil';
+    if (/\bhindi\b/.test(t)) version = version || 'hindi';
+    if (/\btrailer|teaser\b/.test(t)) version = 'trailer';
+    return { intent, title, movie, language, version };
+  }, []);
+
+  const buildQuery = (title, movie, language, version) => {
+    const parts = [];
+    if (title) parts.push(title);
+    if (movie) parts.push(movie);
+    if (language) parts.push(language);
+    parts.push('Official Video');
+    parts.push('T-Series Sony Music India Saregama YRF Zee Music');
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
+
+  const friendlyCardText = (info) => {
+    const views = info?.statistics?.viewCount ? Intl.NumberFormat('en', { notation: 'compact' }).format(+info.statistics.viewCount) : undefined;
+    const likes = info?.statistics?.likeCount ? Intl.NumberFormat('en', { notation: 'compact' }).format(+info.statistics.likeCount) : undefined;
+    const lines = [];
+    if (info?.title) lines.push(`🎶 Playing: ${info.title}`);
+    if (info?.channelTitle) lines.push(`🎧 Channel: ${info.channelTitle}`);
+    if (views || likes) lines.push(`❤️ ${views ? views + ' views' : ''}${views && likes ? ' | ' : ''}${likes ? likes + ' likes' : ''}`);
+    lines.push('▶️ Watch Now on YouTube');
+    lines.push('(Auto-playing below...)');
+    return lines.join('\n');
+  };
+
+  const appendVideoSelection = useCallback((top) => {
+    if (!top?.videoId) return;
+    setAugmented(prev => ([
+      ...prev,
+      { sender: 'assistant', text: friendlyCardText(top) },
+      { sender: 'assistant', youtube: { videoId: top.videoId, title: top.title, autoplay: true }, text: '' },
+    ]));
+    setMediaContext(mc => ({ ...mc, lastTitle: top.title || mc.lastTitle, lastVideoId: top.videoId }));
+    if (typeof window !== 'undefined') requestAnimationFrame(() => {
+      try { chatWindowRef.current?.scrollTo?.({ top: chatWindowRef.current.scrollHeight, behavior: 'smooth' }); } catch {}
+    });
+  }, []);
+
+  // Show and clear a quick local "searching" indicator message
+  const showSearching = useCallback((text) => {
+    const id = Date.now() + Math.random();
+    setAugmented(prev => ([...prev, { sender: 'assistant', text, ephemeral: true, _id: id }]));
+    return id;
+  }, []);
+  const clearSearching = useCallback((id) => {
+    setAugmented(prev => prev.filter(m => m._id !== id));
+  }, []);
+
+  // Watch incoming messages for media intents
+  useEffect(() => {
+    if (!messages?.length) return;
+    const last = messages[messages.length - 1];
+    if (last?.sender !== 'user' || !last?.text) return;
+    // Avoid double-search if backend already supplied a video for this request
+    if (typeof window !== 'undefined' && window.__maya_last_play_had_server_video__) {
+      try { delete window.__maya_last_play_had_server_video__; } catch {}
+      return;
+    }
+    const { intent, title, movie, language, version } = parsePlayIntent(last.text);
+    if (intent !== 'PlayVideo') return;
+    const effectiveMovie = movie || mediaContext.lastMovie || undefined;
+    const q = buildQuery(title || mediaContext.lastTitle, effectiveMovie, language || mediaContext.lastLanguage, version);
+    setMediaContext(mc => ({ ...mc, lastMovie: movie || mc.lastMovie, lastLanguage: language || mc.lastLanguage, lastTitle: title || mc.lastTitle }));
+    const searchId = showSearching('🔎 Searching the official video…');
+    (async () => {
+      try {
+        const res = await apiClient.get('/youtube/search', { params: { q, max_results: 5 } });
+        const top = res?.data?.top;
+        if (language === 'tamil' && top && /chaleya/i.test(title || '') && !/hayyoda/i.test(top.title || '')) {
+          const res2 = await apiClient.get('/youtube/search', { params: { q: buildQuery('Hayyoda', effectiveMovie, 'tamil', version), max_results: 5 } });
+          appendVideoSelection(res2?.data?.top || top);
+        } else {
+          appendVideoSelection(top);
+        }
+      } catch (e) {
+        clearSearching(searchId);
+        setAugmented(prev => ([...prev, { sender: 'assistant', text: 'I tried to find the official video, but hit a snag. Want me to try again?' }]));
+        return;
+      } finally {
+        clearSearching(searchId);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  // Handle "next" follow-up
+  useEffect(() => {
+    if (!messages?.length) return;
+    const last = messages[messages.length - 1];
+    if (last?.sender !== 'user' || !last?.text) return;
+    const t = last.text.toLowerCase();
+    if (!/(play\s+next|next\s+one|next\s+song|play\s+another)/.test(t)) return;
+    const current = mediaContext.lastVideoId;
+    if (!current) return;
+    const nextId = showSearching('⏭️ Finding the next official track…');
+    (async () => {
+      try {
+        const r = await apiClient.get('/youtube/related', { params: { video_id: current, max_results: 5 } });
+        appendVideoSelection(r?.data?.top);
+      } catch {
+        // swallow error; indicator will be cleared below
+      } finally {
+        clearSearching(nextId);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, mediaContext.lastVideoId]);
 
   // Intersection Observer for infinite scroll
   const topElementRef = useCallback(
@@ -752,10 +994,10 @@ const ChatWindow = ({
         )}
 
         <AnimatePresence mode="popLayout">
-          {messages.length === 0 ? (
+          {combinedMessages.length === 0 ? (
             <EmptyState key="empty" />
           ) : (
-            messages.map((msg, index) => (
+            combinedMessages.map((msg, index) => (
               <ChatMessage
                 key={`${activeSessionId}-${index}`}
                 message={msg}
@@ -765,6 +1007,8 @@ const ChatWindow = ({
                 onFeedback={handleFeedback}
                 onSpeak={toggleSpeak}
                 onEdit={editMessage}
+                onSystemAppend={handleSystemAppend}
+                activeSessionId={activeSessionId}
                 feedbackState={feedbackState}
                 copiedIndex={copiedIndex}
                 likedMessages={likedMessages}
@@ -792,8 +1036,17 @@ const ChatWindow = ({
           ))}
         </AnimatePresence>
       </div>
+      {/* Global PiP overlay */}
+      <VideoMiniPlayer />
     </div>
   );
 };
 
-export default ChatWindow;
+// Wrap with PiP provider so mini player is globally available within chat
+const ChatWindowWithProvider = (props) => (
+  <VideoPiPProvider>
+    <ChatWindow {...props} />
+  </VideoPiPProvider>
+);
+
+export default ChatWindowWithProvider;

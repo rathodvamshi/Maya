@@ -199,6 +199,64 @@ def post_process(text: str) -> str:
         t += "\n(Note: The snippet context was already provided.)"
     return t
 
+# --------------- Local Offline Fallback (no external AI) ---------------
+_UNAVAILABLE_SENTINEL = "All AI services are currently unavailable"
+
+def _first_sentences(text: str, max_chars: int = 360) -> str:
+    if not text:
+        return ""
+    trimmed = text.strip().replace("\r", " ")
+    # Prefer sentence ends. If none, fall back to hard cut.
+    for sep in [". ", "! ", "? "]:
+        parts = trimmed.split(sep)
+        if len(parts) > 1:
+            acc = []
+            total = 0
+            for p in parts:
+                if not p:
+                    continue
+                # re-add separator
+                piece = (p + sep).strip()
+                if total + len(piece) > max_chars:
+                    break
+                acc.append(piece)
+                total += len(piece)
+            if acc:
+                return " ".join(acc).strip()
+    return (trimmed[: max_chars - 1] + "…") if len(trimmed) > max_chars else trimmed
+
+def _local_offline_answer(pi: "PipelineInput", nlu: "NLUResult", policy: "PolicyDecision") -> str:
+    q = (pi.user_query or "").strip()
+    snippet = (pi.snippet_text or "").strip()
+    header = "Quick take (offline)"
+    note = "Note: Generating a lightweight answer locally because AI services are temporarily unavailable."
+
+    if snippet:
+        core = _first_sentences(snippet, 420)
+        if nlu.intent == "summarize_request":
+            body = f"Here's a brief summary based on the provided snippet: {core}"
+        elif nlu.intent == "compare":
+            body = (
+                "From the snippet alone, I can outline what's present versus what might be compared: "
+                f"{core} If you share the other item to compare, I can highlight differences explicitly."
+            )
+        elif nlu.intent == "ask_clarification":
+            body = (
+                f"The snippet mainly covers: {core} Could you clarify whether you want a high-level overview, "
+                "implementation detail, or potential edge cases?"
+            )
+        else:  # direct_answer or fallback
+            body = (
+                f"Based on the snippet, here's a concise explanation relevant to your question{(': '+q) if q else ''}: "
+                f"{core}"
+            )
+        tips = "If you need more depth, specify which part of the snippet you'd like to focus on."
+        return f"{header}: {body} \n\n{tips} \n\n{note}"
+    # No snippet available
+    if q:
+        return f"{header}: I can't reach the AI right now, but regarding your question — {q} — could you share a bit more detail so I can help more precisely?\n\n{note}"
+    return f"{header}: I can't reach the AI right now. Please provide your question or some context, and I'll assist based on what's available.\n\n{note}"
+
 # --------------- Pipeline Orchestrator -----------------
 async def run_pipeline(pi: PipelineInput) -> PipelineOutput:
     # NLU
@@ -224,6 +282,10 @@ async def run_pipeline(pi: PipelineInput) -> PipelineOutput:
                 persistent_memories=None,
                 system_override=plan.system_override,
             )
+            # Detect universal outage banner and synthesize a local response
+            if _UNAVAILABLE_SENTINEL.lower() in (text or "").lower():
+                fallback_used = True
+                text = _local_offline_answer(pi, nlu, policy)
         else:
             text = await ai_service.get_response(
                 prompt=plan.prompt,
@@ -255,6 +317,9 @@ async def run_pipeline(pi: PipelineInput) -> PipelineOutput:
                 persistent_memories=pi.persistent_memories if pi.agent_type == "main" else None,
                 system_override=plan.system_override or None,
             )
+            # If fallback still returns outage banner, synthesize locally
+            if pi.agent_type == "mini" and _UNAVAILABLE_SENTINEL.lower() in (text or "").lower():
+                text = _local_offline_answer(pi, nlu, policy)
         except Exception as e2:  # noqa: BLE001
             # Final emergency fallback string
             text = (
