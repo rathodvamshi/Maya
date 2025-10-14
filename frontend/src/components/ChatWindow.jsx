@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Send, Mic, Plus, Camera, Image as ImageIcon, File, Copy, Volume2, ThumbsUp, ThumbsDown, Share2, Edit2, X, ArrowDown, Check, Square, Highlighter, Play } from 'lucide-react';
+import { Send, Mic, Plus, Camera, Image as ImageIcon, File, Copy, ThumbsUp, ThumbsDown, Share2, Edit2, X, ArrowDown, Check, Square, Highlighter, Play } from 'lucide-react';
 import '../styles/ChatWindow.css';
 import ThinkingProcess from './ThinkingProcess';
 import chatService from '../services/chatService';
@@ -364,8 +364,8 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
       const idx = replyText.lastIndexOf("I've set a reminder:");
       if (idx === -1) return null;
       const tail = replyText.slice(idx);
-      // Example: "I've set a reminder: Drink water at 2025-01-01 09:30 UTC. You'll get an email then."
-      const m = tail.match(/I've set a reminder:\s*(.+?)\s+at\s+([^\.\n]+)\./i);
+    // Example: "I've set a reminder: Drink water at 2025-01-01 09:30 UTC. You'll get an email then."
+  const m = tail.match(/I've set a reminder:\s*(.+?)\s+at\s+([^.\n]+)\./i);
       if (m && m[1] && m[2]) return { title: m[1].trim(), when: m[2].trim() };
       const m2 = tail.match(/I've set a reminder:\s*(.+?)\s+at\s+([^\n]+)/i);
       if (m2 && m2[1] && m2[2]) return { title: m2[1].trim(), when: m2[2].trim() };
@@ -735,7 +735,12 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
           </div>
         </div>
         <div className="composer-hint" role="status" aria-live="polite">
-          Press Enter to send • Shift+Enter for newline
+          <div>
+            <p style={{ margin: 0, fontSize: '16px', color: '#333' }}>
+              <strong>Maya may make mistakes.</strong> Please verify important information and
+              <a href="/cookie-preferences" style={{ color: '#58789bff', textDecoration: 'none' }}> review your cookie preferences</a>.
+            </p>
+          </div>
         </div>
       </div>
     </div>

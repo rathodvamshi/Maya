@@ -218,9 +218,15 @@ async def retry_llm_call(prompt: str, schema: dict, retries: int = 2, delay_s: f
                 raise ValueError("Empty response")
 
             cleaned = resp.strip()
-            cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+            # Robust extract of first valid JSON object in text (ignores emojis/markdown)
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1:
+                json_str = cleaned[start:end + 1]
+            else:
+                json_str = cleaned.replace("```json", "").replace("```", "").strip()
             try:
-                obj = json.loads(cleaned)
+                obj = json.loads(json_str)
             except Exception as e:
                 last_err = f"JSON parse error: {e}; raw: {cleaned[:400]}"
                 raise

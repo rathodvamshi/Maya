@@ -1,3 +1,17 @@
+from typing import Callable, Any
+import concurrent.futures
+# =====================================================
+# 🔹 Sync Timeout Utility for Provider Calls
+# =====================================================
+
+def _call_with_timeout(func: Callable[[], Any], timeout: float) -> Any:
+    """Run a sync function with a timeout, raising TimeoutError if exceeded."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(f"Function call timed out after {timeout} seconds")
 # backend/app/services/ai_service.py
 
 import time
@@ -5,10 +19,11 @@ import logging
 import json
 import threading
 from typing import List, Optional, Dict, Any, Callable, Tuple
+import concurrent.futures
+
 
 import google.generativeai as genai
-import cohere
-import anthropic
+import google.generativeai as genai
 
 from app.config import settings
 from app.prompt_templates import MAIN_SYSTEM_PROMPT  # legacy template retained for other uses
@@ -299,10 +314,8 @@ def append_suggestions_if_missing(base_text: str, user_prompt: str, profile: Opt
 # =====================================================
 # 🔹 AI Client Initialization
 # =====================================================
-gemini_keys = [key.strip() for key in settings.GEMINI_API_KEYS.split(",") if key.strip()]
+gemini_keys = [key.strip() for key in (settings.GEMINI_API_KEYS or "").split(",") if key.strip()]
 current_gemini_key_index = 0
-cohere_client = cohere.Client(settings.COHERE_API_KEY) if settings.COHERE_API_KEY else None
-anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY) if settings.ANTHROPIC_API_KEY else None
 
 # =====================================================
 # 🔹 Circuit Breaker & Provider Fallback
@@ -314,80 +327,36 @@ _ADAPTIVE_MIN_INTERVAL = 30.0  # seconds between reorder attempts
 def _derive_provider_order() -> List[str]:
     """Return current provider preference order.
 
-    Priority: explicit env override > adaptive ordering > default static order.
-    Adaptive ordering uses recent latency histogram + win counters to rank providers.
+    Priority: explicit env override > PRIMARY/FALLBACK envs > default static order.
     """
-    # 1. Explicit env override
-    if settings.AI_PROVIDER_ORDER:
-        custom = [p.strip() for p in settings.AI_PROVIDER_ORDER.split(',') if p.strip()]
-        valid = [p for p in custom if p in ("gemini", "cohere", "anthropic")]
-        if valid:
-            return valid
-
-    # 2. Adaptive ordering (only if sufficient data & interval passed)
-    try:
-        import time as _t
-        global _ADAPTIVE_LAST_REORDER
-        now = _t.time()
-        if now - _ADAPTIVE_LAST_REORDER < _ADAPTIVE_MIN_INTERVAL:
-            raise RuntimeError("Adaptive interval not reached")
-        from app.services import metrics as _m
-        snap = _m.snapshot()
-        counters = snap.get("counters", {})
-        hist = snap.get("histograms", {})
-        scores: List[Tuple[float, str]] = []
-        for prov in ["gemini", "cohere", "anthropic"]:
-            win_key = f"chat.hedge.win.provider.{prov}"
-            wins = counters.get(win_key, 0)
-            # use provider.latency.<prov> histogram to approximate mean
-            h_name = f"provider.latency.{prov}"
-            if h_name in hist and hist[h_name].get("count"):
-                avg = hist[h_name]["sum"] / hist[h_name]["count"]
-            else:
-                avg = 1500.0  # pessimistic default
-            # Score: lower latency better, add small bonus for more wins
-            score = avg - (wins * 10)  # 10ms credit per win
-            scores.append((score, prov))
-        scores.sort()
-        ordered = [p for _, p in scores]
-        # keep only providers actually configured/available clients
-        filtered: List[str] = []
-        for p in ordered:
-            if p == "gemini" and gemini_keys:
-                filtered.append(p)
-            elif p == "cohere" and cohere_client:
-                filtered.append(p)
-            elif p == "anthropic" and anthropic_client:
-                filtered.append(p)
-        if filtered:
-            _ADAPTIVE_LAST_REORDER = now
-            return filtered
-    except Exception:
-        pass
-
-    # 3. Default order
-    return ["gemini", "cohere", "anthropic"]
+    order_env = (settings.AI_PROVIDER_ORDER or "").strip()
+    if order_env:
+        items = [s.strip().lower() for s in order_env.split(",") if s.strip()]
+        return [p for p in items if p in {"gemini", "cohere", "anthropic"}]
+    primary = (getattr(settings, "PRIMARY_PROVIDER", None) or "gemini").lower()
+    fallback = (getattr(settings, "FALLBACK_PROVIDER", None) or "cohere").lower()
+    out: List[str] = []
+    for p in (primary, fallback, "anthropic"):
+        if p in {"gemini", "cohere", "anthropic"} and p not in out:
+            out.append(p)
+    return out or ["gemini", "cohere", "anthropic"]
 
 AI_PROVIDERS = _derive_provider_order()
 
 def _is_provider_available(name: str) -> bool:
-    """Check if provider is available (not in cooldown)."""
+    """Check if provider is available (not in cooldown) and has keys configured."""
     import os as _os
+    from app.config import settings as _s
     # In test environments, ignore cooldown to avoid cross-test bleed-through
     if _os.getenv("PYTEST_CURRENT_TEST"):
         return True
-    failure_time = FAILED_PROVIDERS.get(name)
-    if failure_time and (time.time() - failure_time) < settings.AI_PROVIDER_FAILURE_TIMEOUT:
-        logger.warning(f"[AI] Provider '{name}' in cooldown. Skipping.")
-        return False
-    # Recovery path (if previously failed & now outside cooldown) -> emit recovery metric
-    if failure_time and (time.time() - failure_time) >= settings.AI_PROVIDER_FAILURE_TIMEOUT:
-        try:
-            from app.services import metrics as _m
-            _m.incr(f"chat.provider.recovery.{name}")
-        except Exception:  # noqa: BLE001
-            pass
-    return True
+    if name == "gemini":
+        return bool(gemini_keys)
+    if name == "cohere":
+        return bool(_s.COHERE_API_KEY)
+    if name == "anthropic":
+        return bool(_s.ANTHROPIC_API_KEY)
+    return False
 
 # =====================================================
 # 🔹 Provider Helpers
@@ -396,75 +365,156 @@ def _try_gemini(prompt: str) -> str:
     global current_gemini_key_index
     if not gemini_keys:
         raise RuntimeError("No Gemini API keys configured.")
-    start_index = current_gemini_key_index
-    while True:
+    # Prefer configured model, then a compact fallback list
+    configured = (getattr(settings, "GOOGLE_MODEL", None) or "gemini-2.5-flash").strip()
+    SUPPORTED_MODELS = [configured, "gemini-1.5-flash", "gemini-1.5-pro"]
+    max_retries = len(gemini_keys) * len(SUPPORTED_MODELS)
+    for attempt in range(max_retries):
+        key = gemini_keys[current_gemini_key_index]
+        model_name = SUPPORTED_MODELS[attempt % len(SUPPORTED_MODELS)]
         try:
-            key = gemini_keys[current_gemini_key_index]
             genai.configure(api_key=key)
-            model = genai.GenerativeModel("gemini-1.5-flash-latest")
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
-            return response.text
+            if hasattr(response, "text") and response.text:
+                return response.text
+            elif hasattr(response, "candidates") and response.candidates:
+                return response.candidates[0].content
+            else:
+                raise ValueError("Gemini response was empty.")
         except Exception as e:
-            logger.error(f"[Gemini] Key {current_gemini_key_index} failed: {e}")
+            logger.error(f"[Gemini] Key {current_gemini_key_index} model {model_name} failed: {e}")
             current_gemini_key_index = (current_gemini_key_index + 1) % len(gemini_keys)
-            if current_gemini_key_index == start_index:
-                raise RuntimeError("All Gemini API keys failed.")
+    raise RuntimeError("All Gemini API keys or models failed or returned empty responses.")
 
 def _try_cohere(prompt: str) -> str:
-    if not cohere_client:
-        raise RuntimeError("Cohere API client not configured.")
+    # Delegate to existing cohere service; allow model override from settings
     try:
-        response = cohere_client.chat(message=prompt, model="command-r-08-2024")
-        return response.text
+        from app.services import cohere_service as _co
+        model = getattr(settings, "COHERE_MODEL", None)
+        if model:
+            return _co.generate(prompt, model=model)
+        return _co.generate(prompt)
     except Exception as e:
-        raise RuntimeError(f"Cohere API error: {e}")
+        raise RuntimeError(f"Cohere failed: {e}")
 
 def _try_anthropic(prompt: str) -> str:
-    if not anthropic_client:
-        raise RuntimeError("Anthropic API client not configured.")
-    try:
-        message = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=512,  # lowered for faster responses
-            messages=[{"role": "user", "content": prompt}],
-        )
-        # Ensure compatibility with newer API responses
-        if hasattr(message, "content") and message.content:
-            return message.content[0].text
-        elif hasattr(message, "completion"):
-            return message.completion
-        else:
-            raise RuntimeError("Anthropic response parsing failed.")
-    except Exception as e:
-        raise RuntimeError(f"Anthropic API error: {e}")
+    raise RuntimeError("Anthropic is disabled. Only Gemini is supported.")
 
 # =====================================================
-# 🔹 Main AI Response Generator
+# 🔹 Error Classification Helpers
 # =====================================================
-def _call_with_timeout(func: Callable[[], str], timeout_s: float) -> str:
-    """Run sync provider call with hard timeout using a thread.
+def _classify_error(exc: Exception) -> dict:
+    """Classify provider exceptions for retry/alert decisions."""
+    msg = str(exc) if exc else ""
+    low = msg.lower()
+    is_timeout = isinstance(exc, TimeoutError) or "timeout" in low
+    is_rate = any(k in low for k in ["rate limit", "too many requests", "429"])
+    is_server = any(k in low for k in ["500", "internal server error", "unavailable", "bad gateway", "service unavailable"])
+    is_insufficient_credit = any(k in low for k in ["insufficient", "quota", "credit", "billing", "payment", "balance"]) and not is_rate
+    temporary = is_timeout or is_rate or is_server
+    return {
+        "temporary": temporary,
+        "insufficient_credit": is_insufficient_credit,
+        "message": msg,
+    }
 
-    If the function does not complete in time, raises TimeoutError.
-    This avoids blocking the whole request on a slow upstream.
+# =====================================================
+# 🔹 JSON Fallback Orchestrator (Minimal, Provider-Focused)
+# =====================================================
+async def generate_response_json(
+    prompt: str,
+    *,
+    retries_per_provider: int = 2,
+    primary_timeout_s: float | None = None,
+    fallback_timeout_s: float | None = None,
+) -> dict:
     """
-    result: Dict[str, Any] = {}
-    exc: Dict[str, BaseException] = {}
+    Generate a response with provider health checks, retry, and fallback.
 
-    def runner():
-        try:
-            result["value"] = func()
-        except BaseException as e:  # noqa: BLE001
-            exc["err"] = e
+    Returns JSON: {"success": bool, "output": str|None, "provider_used": str|None, "error": str|None}
+    """
+    primary_budget = primary_timeout_s if primary_timeout_s is not None else settings.AI_PRIMARY_TIMEOUT
+    fallback_budget = fallback_timeout_s if fallback_timeout_s is not None else settings.AI_FALLBACK_TIMEOUT
 
-    t = threading.Thread(target=runner, daemon=True)
-    t.start()
-    t.join(timeout=timeout_s)
-    if t.is_alive():
-        # Thread still running; we abandon it (daemon) and timeout.
-        raise TimeoutError(f"Provider call exceeded {timeout_s}s")
-    if "err" in exc:
-        raise exc["err"]
-    return result.get("value", "")
+    errors: list[str] = []
+    chosen_provider: Optional[str] = None
+    text_out: Optional[str] = None
+
+    # Refresh ordering (respects env override and adaptive metrics)
+    try:
+        global AI_PROVIDERS
+        AI_PROVIDERS = _derive_provider_order()
+    except Exception:  # noqa: BLE001
+        pass
+
+    for idx, provider_name in enumerate(AI_PROVIDERS):
+        if not _is_provider_available(provider_name):
+            continue
+        budget = primary_budget if idx == 0 else fallback_budget
+
+        # Retry loop for transient errors
+        attempt = 0
+        while attempt <= retries_per_provider:
+            try:
+                start = time.time()
+                candidate = await _invoke_with_timeout(provider_name, prompt, budget)
+                latency_ms = int((time.time() - start) * 1000)
+                try:
+                    from app.services import metrics as _m
+                    _m.record_hist(f"provider.latency.{provider_name}", latency_ms)
+                    _fire_and_forget(record_provider_latency(provider_name, latency_ms))
+                except Exception:  # noqa: BLE001
+                    pass
+                FAILED_PROVIDERS.pop(provider_name, None)
+                chosen_provider = provider_name
+                text_out = candidate
+                break
+            except Exception as e:  # noqa: BLE001
+                classification = _classify_error(e)
+                if classification.get("insufficient_credit"):
+                    logger.error(f"[AI] {provider_name} insufficient credits: {classification['message']}")
+                elif classification.get("temporary"):
+                    logger.warning(f"[AI] {provider_name} temporary failure (attempt {attempt+1}/{retries_per_provider+1}): {classification['message']}")
+                else:
+                    logger.error(f"[AI] {provider_name} hard failure: {classification['message']}")
+
+                if classification.get("temporary") and attempt < retries_per_provider:
+                    # Backoff before retry
+                    try:
+                        import asyncio as _asyncio
+                        await _asyncio.sleep(min(0.25 * (2 ** attempt), 1.0))
+                    except Exception:  # noqa: BLE001
+                        pass
+                    attempt += 1
+                    continue
+
+                # Mark provider failed (cooldown)
+                FAILED_PROVIDERS[provider_name] = time.time()
+                errors.append(f"{provider_name}: {classification['message']}")
+                break  # move to next provider
+
+        if text_out is not None:
+            break
+
+    if text_out is None:
+        # All providers failed: produce consolidated error msg
+        joined = "; ".join(errors) if errors else "All providers failed with unknown errors"
+        logger.error(f"[AI] All providers failed: {joined}")
+        return {
+            "success": False,
+            "output": None,
+            "provider_used": None,
+            "error": joined,
+        }
+
+    logger.info(f"[AI] Response from {chosen_provider}: {text_out}")
+    return {
+        "success": True,
+        "output": text_out,
+        "provider_used": chosen_provider,
+        "error": None,
+    }
 
 # =====================================================
 # 🔹 Async Provider Wrappers (non-blocking orchestration)
@@ -488,6 +538,9 @@ async def _invoke_provider(provider: str, prompt: str) -> str:
 
 async def _invoke_with_timeout(provider: str, prompt: str, timeout_s: float) -> str:
     import asyncio
+    # If timeout <= 0, wait indefinitely (no timeout wrapper)
+    if timeout_s is None or float(timeout_s) <= 0:
+        return await _invoke_provider(provider, prompt)
     return await asyncio.wait_for(_invoke_provider(provider, prompt), timeout=timeout_s)
 
 
@@ -603,10 +656,10 @@ async def get_response(
       - Each fallback: settings.AI_FALLBACK_TIMEOUT seconds
     """
 
-    # Offline user override: allow users to force an offline/local reply by saying "no web".
+    # Offline user override: allow users to force an offline/local reply by flag or phrase.
     try:
         _low = (prompt or "").lower()
-        if "no web" in _low:
+        if (system_override and str(system_override).lower() == "offline") or ("no web" in _low):
             # Minimal offline answer tailored to the prompt; skip provider calls entirely
             offline_text = (prompt or "").strip()
             if not offline_text:
@@ -1002,10 +1055,11 @@ async def get_response(
     if result is None or provider is None:
         total_ms = int((time.time() - start_total) * 1000)
         logger.error(f"[AI] All providers failed total_latency_ms={total_ms}")
-        try:
-            return _offline_fallback(prompt)
-        except Exception:  # noqa: BLE001
-            return "❌ All AI services are currently unavailable. Please try again later."
+        # Provide a robust, user-friendly fallback
+        return (
+            "Sorry, all AI services are temporarily unavailable. "
+            "Please try again in a few moments. If this persists, contact support."
+        )
 
     # ---------------- Unified Post-processing ----------------
     try:

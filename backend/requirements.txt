@@ -3,6 +3,7 @@
 fastapi
 uvicorn
 pymongo==4.8.0
+motor>=3.5,<4.0.0
 passlib[bcrypt]
 bcrypt==3.2.0
 python-jose[cryptography]
@@ -23,6 +24,7 @@ eventlet>=0.33
 neo4j>=5.14
 dateparser
 python-dateutil
+jsonschema>=4.22,<5
 spacy>=3.7
 pytest
 pytest-asyncio==0.23.8

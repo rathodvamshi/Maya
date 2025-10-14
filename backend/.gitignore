@@ -1,0 +1,8 @@
+# Ignore environment files and local artifacts
+.env
+*.env.local
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

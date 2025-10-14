@@ -382,6 +382,20 @@ def get_chat_log_collection() -> Collection | NoOpCollection:
 def get_tasks_collection() -> Collection | NoOpCollection:
     return db_client.get_tasks_collection()
 
+# -------------------------
+# User-scope enforcement helper
+# -------------------------
+def require_user_scope(query: Dict[str, Any], user_key: str = "user_id") -> Dict[str, Any]:
+    """
+    Guard to ensure all Mongo queries include per-user scope. Use in service layers before DB calls.
+    """
+    try:
+        if user_key not in query:
+            raise RuntimeError("Missing user scope in query")
+    except Exception:
+        raise RuntimeError("Missing user scope in query")
+    return query
+
 def get_sessions_collection() -> Collection | NoOpCollection:
     return db_client.get_sessions_collection()
 

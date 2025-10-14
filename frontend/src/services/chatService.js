@@ -133,6 +133,15 @@ const chatService = {
   },
 
   /**
+   * Calls the resilient multi-provider orchestrator and returns a unified JSON.
+   * @param {string} prompt
+   * @returns {Promise<AxiosResponse<{response?: string, provider_used?: string, error?: string}>>}
+   */
+  generateJSON(prompt) {
+    return apiClient.post('/chat/generate-json', { prompt });
+  },
+
+  /**
    * Retrieves the complete message history for a specific session.
    * @param {string} sessionId - The ID of the session to get history for.
    * @param {number} limit - Maximum number of messages to retrieve (optional).

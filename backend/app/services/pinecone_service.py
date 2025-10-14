@@ -225,7 +225,13 @@ def upsert_message_embedding(user_id: str, session_id: str, text: str, role: str
             "text": text,
             "kind": "message",
         }
-        index.upsert(vectors=[(vid, emb, meta)])
+        # Use per-user namespace to keep embeddings isolated
+        ns = f"user:{user_id}"
+        try:
+            index.upsert(vectors=[(vid, emb, meta)], namespace=ns)
+        except TypeError:
+            # Older SDKs may not accept namespace named arg; fall back to default
+            index.upsert(vectors=[(vid, emb, meta)])
     except Exception as e:
         logger.debug(f"Pinecone message upsert failed: {e}")
 
@@ -254,7 +260,11 @@ def upsert_user_fact_embedding(user_id: str, fact_text: str, timestamp: str, cat
             "kind": "user_fact",
             "category": category,
         }
-        index.upsert(vectors=[(vid, emb, meta)])
+        ns = f"user:{user_id}"
+        try:
+            index.upsert(vectors=[(vid, emb, meta)], namespace=ns)
+        except TypeError:
+            index.upsert(vectors=[(vid, emb, meta)])
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Pinecone user_fact upsert failed: {e}")
 
@@ -306,8 +316,16 @@ def bulk_upsert(payloads: List[Dict[str, Any]]):
                 }
             vectors.append((vid, emb, meta))
         if vectors:
-            # Pinecone v2 & v3 both accept list of (id, vector, metadata)
-            index.upsert(vectors=vectors)
+            # Assume batch belongs to same user; compute namespace from first item, else default
+            first_user = next((it.get("user_id") for it in payloads if it.get("user_id")), "")
+            ns = f"user:{first_user}" if first_user else None
+            try:
+                if ns:
+                    index.upsert(vectors=vectors, namespace=ns)
+                else:
+                    index.upsert(vectors=vectors)
+            except TypeError:
+                index.upsert(vectors=vectors)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"bulk_upsert failed: {e}")
 
@@ -330,6 +348,42 @@ def query_similar_texts(user_id: str, text: str, top_k: int = 3) -> Optional[str
     """
     if not _ensure_index_ready():
         return None
+    if not text:
+        return None
+    try:
+        emb = create_embedding(text)
+        if not emb:
+            return None
+        # Restrict to this user's namespace and message-kind vectors
+        ns = f"user:{user_id}"
+        kwargs = {
+            "vector": emb,
+            "top_k": top_k,
+            "include_metadata": True,
+            "filter": {"user_id": {"$eq": user_id}, "kind": {"$eq": "message"}},
+        }
+        try:
+            res = index.query(namespace=ns, **kwargs)
+        except TypeError:
+            res = index.query(**kwargs)
+        matches = (
+            getattr(res, "matches", None)
+            if not isinstance(res, dict)
+            else res.get("matches", [])
+        ) or []
+        snippets: list[str] = []
+        for m in matches:
+            md = getattr(m, "metadata", None)
+            if md is None and isinstance(m, dict):
+                md = m.get("metadata")
+            md = md or {}
+            snippet = md.get("text") if isinstance(md, dict) else None
+            if snippet:
+                snippets.append(snippet)
+        return "\n---\n".join(snippets) if snippets else None
+    except Exception as e:
+        logger.debug(f"query_similar_texts failed: {e}")
+        return None
 
 
 def query_user_facts(user_id: str, hint_text: str, top_k: int = 5) -> List[str]:
@@ -344,13 +398,17 @@ def query_user_facts(user_id: str, hint_text: str, top_k: int = 5) -> List[str]:
         emb = create_embedding(hint_text or user_id)
         if not emb:
             return []
-        # Filter: user_id match + kind=user_fact
-        res = index.query(
-            vector=emb,
-            top_k=top_k,
-            include_metadata=True,
-            filter={"user_id": {"$eq": user_id}, "kind": {"$eq": "user_fact"}},
-        )
+        ns = f"user:{user_id}"
+        kwargs = {
+            "vector": emb,
+            "top_k": top_k,
+            "include_metadata": True,
+            "filter": {"user_id": {"$eq": user_id}, "kind": {"$eq": "user_fact"}},
+        }
+        try:
+            res = index.query(namespace=ns, **kwargs)
+        except TypeError:
+            res = index.query(**kwargs)
         matches = (
             getattr(res, "matches", None)
             if not isinstance(res, dict)
@@ -369,34 +427,6 @@ def query_user_facts(user_id: str, hint_text: str, top_k: int = 5) -> List[str]:
     except Exception as e:  # noqa: BLE001
         logger.debug(f"query_user_facts failed: {e}")
         return []
-    if not text:
-        return None
-
-    try:
-        emb = create_embedding(text)
-        if not emb:
-            return None
-        res = index.query(vector=emb, top_k=top_k, include_metadata=True, filter={"user_id": {"$eq": user_id}})
-        matches = (
-            getattr(res, "matches", None)
-            if not isinstance(res, dict)
-            else res.get("matches", [])
-        )
-        if matches is None:
-            matches = []
-        snippets: list[str] = []
-        for m in matches:
-            md = getattr(m, "metadata", None)
-            if md is None and isinstance(m, dict):
-                md = m.get("metadata")
-            md = md or {}
-            snippet = md.get("text") if isinstance(md, dict) else None
-            if snippet:
-                snippets.append(snippet)
-        return "\n---\n".join(snippets) if snippets else None
-    except Exception as e:
-        logger.debug(f"Pinecone query_similar_texts failed: {e}")
-        return None
 
 
 def upsert_memory_embedding(memory_id: str, user_id: str, text: str, lifecycle_state: str):
@@ -419,7 +449,11 @@ def upsert_memory_embedding(memory_id: str, user_id: str, text: str, lifecycle_s
             "lifecycle_state": lifecycle_state,
             "text": text,
         }
-        index.upsert(vectors=[(vid, emb, meta)])
+        ns = f"user:{user_id}"
+        try:
+            index.upsert(vectors=[(vid, emb, meta)], namespace=ns)
+        except TypeError:
+            index.upsert(vectors=[(vid, emb, meta)])
     except Exception as e:  # noqa: BLE001
         logger.debug(f"upsert_memory_embedding failed: {e}")
 
@@ -435,12 +469,17 @@ def query_user_memories(user_id: str, query_text: str, top_k: int = 8) -> List[D
         emb = create_embedding(query_text)
         if not emb:
             return []
-        res = index.query(
-            vector=emb,
-            top_k=top_k,
-            include_metadata=True,
-            filter={"user_id": {"$eq": user_id}, "kind": {"$eq": "memory"}},
-        )
+        ns = f"user:{user_id}"
+        kwargs = {
+            "vector": emb,
+            "top_k": top_k,
+            "include_metadata": True,
+            "filter": {"user_id": {"$eq": user_id}, "kind": {"$eq": "memory"}},
+        }
+        try:
+            res = index.query(namespace=ns, **kwargs)
+        except TypeError:
+            res = index.query(**kwargs)
         matches = (
             getattr(res, "matches", None)
             if not isinstance(res, dict)
@@ -468,3 +507,44 @@ def query_user_memories(user_id: str, query_text: str, top_k: int = 8) -> List[D
     except Exception as e:  # noqa: BLE001
         logger.debug(f"query_user_memories failed: {e}")
         return []
+
+
+# =====================================================
+# 🔹 Deletion Helpers (CRUD: Delete)
+# =====================================================
+def delete_vectors(vector_ids: List[str], namespace: Optional[str] = None) -> None:
+    """Delete vectors by IDs, optionally within a namespace."""
+    if not _ensure_index_ready() or not vector_ids:
+        return
+    try:
+        if namespace:
+            index.delete(ids=vector_ids, namespace=namespace)
+        else:
+            index.delete(ids=vector_ids)
+    except TypeError:
+        # Older SDK signatures
+        index.delete(ids=vector_ids)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"delete_vectors failed: {e}")
+
+
+def delete_user_memory_vectors(user_id: str, memory_id: str) -> None:
+    """Delete vectors associated with a structured memory item."""
+    try:
+        delete_vectors([f"memory:{memory_id}"])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def delete_user_namespace(user_id: str) -> None:
+    """Delete an entire user's namespace (use with caution)."""
+    if not _ensure_index_ready():
+        return
+    ns = f"user:{user_id}"
+    try:
+        index.delete(delete_all=True, namespace=ns)
+    except TypeError:
+        # Some SDKs may use different signature; fallback to best-effort by listing not available => skip
+        logger.debug("Namespace delete not supported by this SDK; skipping")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"delete_user_namespace failed: {e}")

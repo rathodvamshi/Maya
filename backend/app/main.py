@@ -1,10 +1,4 @@
 import os
-
-# Check SMTP credentials at startup (non-fatal, downgraded to warning and supports MAIL_* vars)
-SMTP_USER = os.getenv("SMTP_USER") or os.getenv("MAIL_USERNAME")
-SMTP_PASS = os.getenv("SMTP_PASS") or os.getenv("MAIL_PASSWORD")
-if not SMTP_USER or not SMTP_PASS:
-    print("WARNING: SMTP credentials not set (MAIL_USERNAME/MAIL_PASSWORD). Email sending will fail until configured.")
 # backend/app/main.py
 
 from fastapi import FastAPI, Request, HTTPException
@@ -77,13 +71,17 @@ async def lifespan(app: FastAPI):
     print("--- Verifying Connections ---")
     print("✅ MongoDB connected")
     try:
-        redis_ok = await redis_service.redis_client.ping()
+        redis_ok = await redis_service.ping()
     except Exception:
         redis_ok = False
     print("✅ Redis connected" if redis_ok else "❌ Redis not connected")
     print(f"✅ Pinecone connected" if getattr(pinecone_service, 'index', None) else "❌ Pinecone not connected")
     print(f"✅ Neo4j connected" if getattr(neo4j_service, '_driver', None) else "❌ Neo4j not connected")
     
+    # Settings already normalize SMTP_USER/SMTP_PASS from MAIL_* if present
+    if not (settings.SMTP_USER and settings.SMTP_PASS):
+        print("WARNING: SMTP credentials not set (SMTP_USER/SMTP_PASS or MAIL_USERNAME/MAIL_PASSWORD). Email features will be disabled until configured.")
+
     print("--- Startup complete. ---")
     yield
     

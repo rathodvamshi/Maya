@@ -1,7 +1,7 @@
 # Dockerfile for the frontend React application
 
-# Use an official Node.js runtime as a parent image
-FROM node:16
+# Use an official Node.js LTS runtime as a parent image (React Router requires >=20)
+FROM node:20
 
 # Set the working directory in the container
 WORKDIR /app

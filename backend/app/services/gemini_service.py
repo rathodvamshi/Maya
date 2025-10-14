@@ -4,7 +4,7 @@ import google.generativeai as genai
 from app.config import settings
 
 # --- Global State for Key Rotation ---
-gemini_keys = [key.strip() for key in settings.GEMINI_API_KEYS.split(',') if key.strip()]
+gemini_keys = [key.strip() for key in (settings.GEMINI_API_KEYS or "").split(',') if key.strip()]
 current_gemini_key_index = 0
 
 def generate(prompt: str) -> str:
@@ -20,7 +20,8 @@ def generate(prompt: str) -> str:
         try:
             key_to_try = gemini_keys[current_gemini_key_index]
             genai.configure(api_key=key_to_try)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model_name = getattr(settings, "GOOGLE_MODEL", None) or "gemini-1.5-flash"
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             return response.text
 

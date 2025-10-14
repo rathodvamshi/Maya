@@ -71,7 +71,7 @@ class UserCreate(BaseModel):
     password: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {"email": "alice@example.com", "password": "S3curePa$$"}
         }
 
@@ -145,7 +145,7 @@ class UserProfile(BaseModel):
 
     class Config:
         populate_by_name = True
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "_id": "64f1c2e0a7b9b9a1f0e8b3c4",
                 "user_id": "64f1c2e0a7b9b9a1f0e8b3c4",

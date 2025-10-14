@@ -1,0 +1,32 @@
+services:
+  backend:
+    image: ghcr.io/${OWNER}/${REPO}-backend:${TAG:-latest}
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+
+  celery-worker:
+    image: ghcr.io/${OWNER}/${REPO}-backend:${TAG:-latest}
+    command: ["celery", "-A", "app.celery_worker.celery_app", "worker", "--loglevel=info", "-P", "solo"]
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+
+  celery-beat:
+    image: ghcr.io/${OWNER}/${REPO}-backend:${TAG:-latest}
+    command: ["celery", "-A", "app.celery_worker.celery_app", "beat", "--loglevel=info"]
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/${OWNER}/${REPO}-frontend:${TAG:-latest}
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    restart: unless-stopped

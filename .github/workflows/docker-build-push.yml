@@ -1,0 +1,123 @@
+name: Build and Push Docker images (backend + frontend)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  REPO_NAME: ${{ toLower(github.event.repository.name) }}
+  OWNER: ${{ toLower(github.repository_owner) }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            context: .
+            dockerfile: Dockerfile
+            image_suffix: backend
+          - name: frontend
+            context: ./frontend
+            dockerfile: Dockerfile
+            image_suffix: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        shell: bash
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-12)
+          IMAGE_BASE="${REGISTRY}/${OWNER}/${REPO_NAME}-${{ matrix.image_suffix }}"
+          echo "image_base=${IMAGE_BASE}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          # Tag latest only for main branch
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "tag_latest=1" >> $GITHUB_OUTPUT
+          else
+            echo "tag_latest=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.meta.outputs.image_base }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_base }}:latest
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_started_at }}
+
+      - name: Summary
+        run: |
+          echo "Built and pushed: ${{ steps.meta.outputs.image_base }}:${{ steps.meta.outputs.short_sha }}"
+          echo "Latest tag applied: ${{ steps.meta.outputs.tag_latest }}"
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write .env.deploy
+        run: |
+          echo OWNER=${{ env.OWNER }} >> .env.deploy
+          echo REPO=${{ env.REPO_NAME }} >> .env.deploy
+          echo TAG=${{ github.sha }} >> .env.deploy
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Add known hosts
+        run: ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Remote Docker login GHCR
+        run: ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin"
+
+      - name: Upload env file
+        run: scp .env.deploy ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:~/app/.env.deploy
+
+      - name: Remote deploy (pull + up -d)
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "cd ~/app && export \
+            \
+            $(cat .env.deploy | xargs) && \
+            docker compose -f docker-compose.prod.yml pull && \
+            docker compose -f docker-compose.prod.yml up -d"
+
+      - name: Post-deploy health check
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "curl -sSf http://localhost:8000/health/version || true"

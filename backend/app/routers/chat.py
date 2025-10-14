@@ -85,6 +85,14 @@ class ContinueChatResponse(BaseModel):
     ai_message_id: Optional[str] = None
     user_message_id: Optional[str] = None
 
+class GenerateRequest(BaseModel):
+    prompt: str
+
+class GenerateJSONResponse(BaseModel):
+    response: Optional[str] = None
+    provider_used: Optional[str] = None
+    error: Optional[str] = None
+
 class VideoControlRequest(BaseModel):
     action: str  # play|pause|replay|next|lyrics
     session_id: Optional[str] = None
@@ -98,34 +106,34 @@ class VideoControlResponse(BaseModel):
     lyrics: Optional[str] = None
 # Small helper to normalize to naive UTC
 def _to_utc_naive(dt: datetime) -> datetime:
-    if dt is None:
-        return dt
-    if dt.tzinfo is not None:
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
+    if dt is None:  # Check if the datetime is None
+        return dt  # Return None if input is None
+    if dt.tzinfo is not None:  # If the datetime has timezone info
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)  # Convert to UTC and remove timezone info
+    return dt  # Return the naive datetime if no timezone info is present
 
 def _format_eta_for_user(eta_utc_naive: datetime, user_tz: str | None, time_format: str | None = None) -> str:
     """Return a friendly time string in the user's timezone when possible, else UTC.
 
     Example: 2025-10-10 05:32 IST (Asia/Kolkata), falling back to 'YYYY-MM-DD HH:MM UTC'.
     """
-    try:
-        if not isinstance(eta_utc_naive, datetime):
-            return str(eta_utc_naive)
-        aware_utc = eta_utc_naive.replace(tzinfo=timezone.utc)
-        if user_tz:
+    try:  # Try to format the ETA
+        if not isinstance(eta_utc_naive, datetime):  # Check if the input is a datetime instance
+            return str(eta_utc_naive)  # Return as string if not a datetime
+        aware_utc = eta_utc_naive.replace(tzinfo=timezone.utc)  # Make the datetime aware in UTC
+        if user_tz:  # If user timezone is provided
             try:
                 from zoneinfo import ZoneInfo  # Python 3.9+
-                local_dt = aware_utc.astimezone(ZoneInfo(user_tz))
+                local_dt = aware_utc.astimezone(ZoneInfo(user_tz))  # Convert to user's timezone
                 fmt = "%Y-%m-%d %I:%M %p %Z" if (time_format or "").lower().startswith("12") else "%Y-%m-%d %H:%M %Z"
-                return local_dt.strftime(fmt)
+                return local_dt.strftime(fmt)  # Format and return the local datetime
             except Exception:
-                pass
+                pass  # Ignore exceptions and fall back to UTC
         # Fallback to UTC format
         fmt = "%Y-%m-%d %I:%M %p UTC" if (time_format or "").lower().startswith("12") else "%Y-%m-%d %H:%M UTC"
-        return aware_utc.strftime(fmt)
-    except Exception:
-        return str(eta_utc_naive)
+        return aware_utc.strftime(fmt)  # Return formatted UTC datetime
+    except Exception:  # Catch any exceptions
+        return str(eta_utc_naive)  # Return as string if any error occurs
 
 class FeedbackBody(BaseModel):
     fact_id: str
@@ -320,7 +328,7 @@ async def _maybe_create_and_schedule_reminder(
     # Create and schedule
     try:
         task_id = str(ObjectId())
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         doc = {
             "_id": task_id,
             "user_id": user_id_str,
@@ -340,43 +348,40 @@ async def _maybe_create_and_schedule_reminder(
         try:
             logger.info(f"[Sessions] Created task {task_id} title='{title}' due={eta_norm} user={user_id_str}")
         except Exception:
-            pass
+            logger.warning(f"Failed to log task creation for {task_id}")
         # Schedule at the exact time using ETA for precision
+        # Email reminder scheduling removed
+        celery_id = None
         try:
-            # Email reminder scheduling removed
-            celery_id = None
             tasks.update_one({"_id": task_id}, {"$set": {"celery_task_id": None}})
-            try:
-                logger.info(f"[Sessions] Reminder scheduling via email disabled for task {task_id} at {eta_norm}")
-            except Exception:
-                pass
-            # Emit audit log into worker terminal
-            try:
-                to_email = current_user.get("email") or current_user.get("user_email")
-                celery_app.send_task(
-                    "audit_log",
-                    args=["Task Scheduled"],
-                    kwargs={
-                        "payload": {"task_id": task_id, "eta_utc": str(eta_norm), "to": to_email},
-                        "source": "chat",
-                        "immediate": False,
-                    },
-                )
-            except Exception:
-                pass
+            logger.info(f"[Sessions] Reminder scheduling via email disabled for task {task_id} at {eta_norm}")
         except Exception:
-            # Reconcile will pick up if celery id missing
-            pass
+            logger.warning(f"Failed to update celery_task_id for {task_id}")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to create and schedule task: {e}")
+        # Emit audit log into worker terminal
+        try:
+            to_email = current_user.get("email") or current_user.get("user_email")
+            celery_app.send_task(
+                "audit_log",
+                args=["Task Scheduled"],
+                kwargs={
+                    "payload": {"task_id": task_id, "eta_utc": str(eta_norm), "to": to_email},
+                    "source": "chat",
+                    "immediate": False,
+                },
+            )
+        except Exception:
+            logger.warning(f"Failed to send audit log for {task_id}")
         # Confirmation email removed
         # Record in user profile (recent tasks + stats)
         try:
             profile_service.record_task_created(user_id_str, task_id=task_id, title=title, due_date=eta_norm)
         except Exception:
-            pass
+            logger.warning(f"Failed to record task creation for {task_id}")
         # Return creation details for UI confirmation
         return {"created": True, "task_id": task_id, "title": title, "eta_utc": eta_norm, "celery_id": celery_id}
-    except Exception:
-        # Do not interrupt chat flow
         return None
 
 # =====================================================
@@ -824,6 +829,48 @@ async def video_control(
     return VideoControlResponse(response_text="Unknown control. Try play, pause, replay, next, or lyrics.")
 
 # =====================================================
+# 🔹 JSON AI Generation Endpoint (Resilient Orchestrator)
+# =====================================================
+@router.post("/generate-json", response_model=GenerateJSONResponse)
+async def generate_json(
+    body: GenerateRequest,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Return unified JSON using multi-provider orchestrator.
+
+    Always returns a stable JSON with either response+provider_used or an error string.
+    """
+    prompt = (body.prompt or "").strip()
+    if not prompt:
+        return GenerateJSONResponse(response=None, provider_used=None, error="prompt is required")
+    # Soft cap input length for stability; reject extremely large inputs
+    if len(prompt) > 8000:
+        return GenerateJSONResponse(response=None, provider_used=None, error="prompt too long")
+
+    try:
+        result = await ai_service.generate_response_json(prompt)
+        # Use new response format: success, output, provider_used, error
+        if result.get("success"):
+            return GenerateJSONResponse(
+                response=result.get("output"),
+                provider_used=result.get("provider_used"),
+                error=None,
+            )
+        else:
+            return GenerateJSONResponse(
+                response=None,
+                provider_used=None,
+                error=result.get("error") or "Sorry, all AI services are temporarily unavailable. Please try again in a few moments. If this persists, contact support."
+            )
+    except Exception as e:  # noqa: BLE001
+        # Do not raise; return structured error
+        try:
+            logger.exception("/generate-json failed")
+        except Exception:
+            pass
+        return GenerateJSONResponse(response=None, provider_used=None, error=str(e))
+
+# =====================================================
 # 🔹 Intent Detection (Simple Rule-Based)
 # =====================================================
 def _detect_intent_and_entities(message: str) -> dict:
@@ -861,6 +908,18 @@ async def handle_chat_message(
     """
     Central handler for processing a chat message, including intent detection.
     """
+    # 0. Immediate deterministic profile extraction (name, timezone, favorites, etc.)
+    # This ensures cross-session recall (e.g., user name) before gathering context
+    try:
+        det = deterministic_extractor.extract(message, "")
+        if det.get("profile_update"):
+            try:
+                profile_service.merge_update(user_id, **det["profile_update"])  # type: ignore[arg-type]
+            except Exception:
+                # Non-fatal; proceed without blocking the chat
+                pass
+    except Exception:
+        pass
     # 1. Intent Detection for Reminders
     reminder_result = await _maybe_create_and_schedule_reminder(
         message, current_user, tasks_collection, {}
@@ -937,22 +996,13 @@ async def handle_chat_message(
     await log_message(session_id, "user", message, chat_log_collection)
     await log_message(session_id, "assistant", ai_response_text, chat_log_collection)
 
-    # Also persist into the session document so history endpoint can serve it
+    # Unified session history logging (memory_coordinator)
     try:
-        now = datetime.utcnow()
-        user_doc = {"_id": ObjectId(), "sender": "user", "text": message, "timestamp": now}
-        ai_doc = {"_id": ObjectId(), "sender": "assistant", "text": ai_response_text, "timestamp": now}
-        await run_in_threadpool(
-            sessions_collection.update_one,
-            {"_id": ObjectId(session_id)},
-            {
-                "$push": {"messages": {"$each": [user_doc, ai_doc]}},
-                "$set": {"updatedAt": now, "lastMessageAt": now, "lastMessage": ai_response_text[:200]},
-                "$inc": {"messageCount": 2},
-            },
-        )
-    except Exception:
-        pass
+        from app.services.memory_coordinator import _append_history
+        await _append_history(session_id, message, ai_response_text)
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Failed to append to session history (non-fatal): {e}")
 
     post_message_update(
         user_id=user_id,
@@ -1085,6 +1135,14 @@ async def start_new_chat(
                 ai_message_id=str(ai_doc2["_id"]) if isinstance(ai_doc2.get("_id"), ObjectId) else None,
                 user_message_id=str(user_doc2["_id"]) if isinstance(user_doc2.get("_id"), ObjectId) else None,
             )
+    except Exception:
+        pass
+
+    # Before deeper handling, update user's profile from the first message if applicable
+    try:
+        det0 = deterministic_extractor.extract(request.message, "")
+        if det0.get("profile_update"):
+            profile_service.merge_update(user_id, **det0["profile_update"])  # type: ignore[arg-type]
     except Exception:
         pass
 

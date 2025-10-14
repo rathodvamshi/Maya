@@ -32,6 +32,10 @@ from app.services import redis_service as redis_async_service  # may be None in 
 from app.services import memory_store
 from app.services import memory_service
 from app.utils.history import trim_history
+try:
+    from app.memory.manager import memory_manager as _memory_manager
+except Exception:  # noqa: BLE001
+    _memory_manager = None
 
 logger = logging.getLogger(__name__)
 
@@ -126,11 +130,23 @@ async def gather_memory_context(
     except Exception:  # noqa: BLE001
         pass
 
-    # 3) Profile (Mongo deterministic)
+    # 3) Profile (Redis-cached -> Mongo deterministic)
     try:
-        profile = profile_service.get_profile(user_id)
-    except Exception:  # noqa: BLE001
-        profile = {}
+        cached_prof = await memory_store.get_cached_user_profile(user_id)
+    except Exception:
+        cached_prof = None
+    if cached_prof:
+        profile = cached_prof
+    else:
+        try:
+            profile = profile_service.get_profile(user_id)
+            # Warm cache best-effort
+            try:
+                await memory_store.cache_user_profile(user_id, profile)
+            except Exception:
+                pass
+        except Exception:  # noqa: BLE001
+            profile = {}
 
     # 4) Pinecone queries (progressive time budgeting)
     pinecone_context = None
@@ -152,6 +168,31 @@ async def gather_memory_context(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Pinecone query failed: {e}")
         pinecone_context = None
+
+    # 4b) Unified manager fallback for cross-session retrieval
+    # If we skipped Neo4j due to timeout or Pinecone returned empty, query via MemoryManager
+    try:
+        if _memory_manager is not None and (not neo4j_facts or not pinecone_context):
+            mm_res = await _memory_manager.get_memory(
+                user_id=user_id,
+                query=latest_user_message,
+                memory_type=None,
+                session_id=session_id,
+            )
+            if not neo4j_facts:
+                alt_graph = (mm_res or {}).get("neo4j") or ""
+                if alt_graph:
+                    neo4j_facts = alt_graph
+            if not pinecone_context:
+                # Convert list of matches into compact context
+                matches = (mm_res or {}).get("pinecone") or []
+                if matches:
+                    txts = [m.get("text") for m in matches if isinstance(m, dict) and m.get("text")]
+                    if txts:
+                        pinecone_context = "\n---\n".join(txts[:top_k_semantic])
+    except Exception as _e:  # noqa: BLE001
+        # Fallback is best-effort; do not fail context build
+        pass
 
     # 4) Trim history to budget
     trimmed_history = trim_history(history, max_chars=history_char_budget)

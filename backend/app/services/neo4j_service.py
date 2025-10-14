@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 class Neo4jService:
     _driver: Optional[AsyncDriver] = None
+    _database: Optional[str] = None
 
     async def connect(self, retries: Optional[int] = None):
         """Attempt to establish async driver with retry/backoff.
@@ -48,6 +49,11 @@ class Neo4jService:
                     auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
                 )
                 await self._driver.verify_connectivity()
+                # Capture explicit database if provided
+                try:
+                    self._database = getattr(settings, "NEO4J_DATABASE", None) or None
+                except Exception:
+                    self._database = None
                 if attempt > 0:
                     logger.info(f"Neo4j async connected after retry attempt={attempt}")
                 return
@@ -87,7 +93,7 @@ class Neo4jService:
             logger.error("Neo4j driver not available.")
             return None
         try:
-            async with self._driver.session() as session:
+            async with self._driver.session(database=self._database) as session:
                 result = await session.run(query, parameters or {})
                 return [record.data() async for record in result]
         except Exception as e:
@@ -156,7 +162,7 @@ class Neo4jService:
             logger.error("Neo4j driver not available. Cannot add entities.")
             return
 
-        async with self._driver.session() as session:
+        async with self._driver.session(database=self._database) as session:
             async with await session.begin_transaction() as tx:
                 # Entities
                 for entity in entities:
@@ -203,9 +209,21 @@ class Neo4jService:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Async upsert_user_preference failed: {e}")
 
+    async def ping(self) -> bool:
+        try:
+            if not self._driver:
+                await self.connect(retries=1)
+            if not self._driver:
+                return False
+            await self._driver.verify_connectivity()
+            return True
+        except Exception:
+            return False
+
 # --- New: synchronous service for Celery worker (no asyncio in worker) ---
 class Neo4jSyncService:
     _driver: Optional[Driver] = None
+    _database: Optional[str] = None
 
     def connect(self, retries: Optional[int] = None):
         if self._driver:
@@ -224,6 +242,10 @@ class Neo4jSyncService:
                     auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
                 )
                 self._driver.verify_connectivity()
+                try:
+                    self._database = getattr(settings, "NEO4J_DATABASE", None) or None
+                except Exception:
+                    self._database = None
                 if attempt > 0:
                     logger.info(f"Neo4j sync connected after retry attempt={attempt}")
                 return
@@ -255,7 +277,7 @@ class Neo4jSyncService:
             logger.error("Neo4j sync driver not available.")
             return None
         try:
-            with self._driver.session() as session:
+            with self._driver.session(database=self._database) as session:
                 result = session.run(query, parameters or {})
                 return [r.data() for r in result]
         except Exception as e:
@@ -268,7 +290,7 @@ class Neo4jSyncService:
         if not self._driver:
             logger.error("Neo4j sync driver not available. Cannot add entities.")
             return
-        with self._driver.session() as session:
+        with self._driver.session(database=self._database) as session:
             with session.begin_transaction() as tx:
                 for entity in entities:
                     label = "".join(filter(str.isalnum, entity.get("label", "Thing")))
@@ -302,7 +324,7 @@ class Neo4jSyncService:
             return
         if not label:
             return
-        with self._driver.session() as session:
+        with self._driver.session(database=self._database) as session:
             try:
                 session.run(
                     """
@@ -323,7 +345,7 @@ class Neo4jSyncService:
         if not self._driver:
             logger.error("Neo4j sync driver not available.")
             return
-        with self._driver.session() as session:
+        with self._driver.session(database=self._database) as session:
             if not correction or correction.lower() == "delete":
                 session.run(
                     """
@@ -352,7 +374,7 @@ class Neo4jSyncService:
             logger.error("Neo4j sync driver not available.")
             return ""
         try:
-            with self._driver.session() as session:
+            with self._driver.session(database=self._database) as session:
                 rel_query = (
                     "MATCH (u:User {id: $user_id})-[r]->(n) "
                     "WHERE n.name IS NOT NULL "
@@ -375,6 +397,65 @@ class Neo4jSyncService:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"get_user_facts_sync failed: {e}")
             return ""
+
+    # --- CRUD helpers ---
+    async def create_relation(self, user_id: str, rel_type: str, concept: str) -> None:
+        if not self._driver:
+            await self.connect()
+        if not self._driver or not rel_type or not concept:
+            return
+        rel = "".join(filter(str.isalnum, rel_type)).upper()
+        await self.run_query(
+            """
+            MERGE (u:User {id: $uid})
+            MERGE (c:Concept {name: $name})
+            MERGE (u)-[:%s]->(c)
+            """ % rel,
+            {"uid": user_id, "name": concept},
+        )
+
+    async def delete_relation(self, user_id: str, rel_type: str, concept: str) -> None:
+        if not self._driver:
+            await self.connect()
+        if not self._driver or not rel_type or not concept:
+            return
+        rel = "".join(filter(str.isalnum, rel_type)).upper()
+        await self.run_query(
+            """
+            MATCH (u:User {id: $uid})-[r:%s]->(c:Concept {name: $name})
+            DELETE r
+            """ % rel,
+            {"uid": user_id, "name": concept},
+        )
+
+    async def get_relations(self, user_id: str, rel_type: str) -> List[str]:
+        if not self._driver:
+            await self.connect()
+        if not self._driver or not rel_type:
+            return []
+        rel = "".join(filter(str.isalnum, rel_type)).upper()
+        rows = await self.run_query(
+            """
+            MATCH (u:User {id: $uid})-[r:%s]->(c)
+            RETURN c.name AS name
+            ORDER BY c.name ASC
+            """ % rel,
+            {"uid": user_id},
+        )
+        return [r.get("name") for r in (rows or []) if r.get("name")]
+
+    async def delete_concept(self, concept: str) -> None:
+        if not self._driver:
+            await self.connect()
+        if not self._driver or not concept:
+            return
+        await self.run_query(
+            """
+            MATCH (c:Concept {name: $name})
+            DETACH DELETE c
+            """,
+            {"name": concept},
+        )
 
 neo4j_service = Neo4jService()
 neo4j_sync_service = Neo4jSyncService()

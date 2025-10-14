@@ -1,90 +1,109 @@
-# backend/app/config.py
 # ==================================================
-# Configuration management for Project Maya Backend
+# Project Maya Backend Configuration
+# Centralized settings for DBs, APIs, AI, and services
 # ==================================================
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from typing import Optional
 import os
 
 
 class Settings(BaseSettings):
     """
     Centralized configuration for all backend services.
-    Reads values from environment variables or a `.env` file.
+    Loads from environment variables or a `.env` file.
     """
 
     # ==================================================
-    # Database & Security
+    # 🗄️ Database (MongoDB)
     # ==================================================
-    MONGO_URI: str | None = None                 # MongoDB connection string
-    MONGO_DB: str = "MAYA"                       # MongoDB database name
-    DATABASE_URL: str | None = None              # Optional fallback DB URL
-
-    SECRET_KEY: str                              # JWT signing key
-    ALGORITHM: str                               # JWT algorithm (e.g., HS256)
-    ACCESS_TOKEN_EXPIRE_MINUTES: int             # JWT access token expiry (minutes)
-    REFRESH_TOKEN_EXPIRE_DAYS: int               # JWT refresh token expiry (days)
+    MONGO_URI: str
+    MONGO_DB: str = "MAYA"
+    DATABASE_URL: Optional[str] = None  # Optional fallback DB URL
 
     # ==================================================
-    # AI / Embeddings / Vector DB
+    # 🔐 JWT / Authentication
     # ==================================================
-    PINECONE_API_KEY: str                        # Pinecone API key
-    PINECONE_ENVIRONMENT: str | None = None      # Pinecone region (e.g., us-east-1)
-    PINECONE_ENV: str | None = None              # Backward compatible alias
-    PINECONE_INDEX: str = "maya2-session-memory" # Default Pinecone index name
-
-    GEMINI_API_KEYS: str                         # Google Gemini API key(s)
-    COHERE_API_KEY: str                          # Cohere API key
-    ANTHROPIC_API_KEY: str                       # Anthropic Claude API key
-
-    AI_PROVIDER_FAILURE_TIMEOUT: int = 300       # Retry delay for failed AI provider
-    AI_PRIMARY_TIMEOUT: float = 2.2              # Primary AI request timeout (seconds)
-    AI_FALLBACK_TIMEOUT: float = 4.5             # Fallback AI request timeout (seconds)
-    AI_ENABLE_HEDGED: bool = True                # Parallel hedged requests
-    AI_HEDGE_DELAY_MS: int = 90                  # Delay between hedge requests
-    AI_MAX_PARALLEL: int = 2                     # Max parallel AI requests
-    AI_PROVIDER_ORDER: str | None = None         # Comma-separated override order
-
-    EMBEDDING_MODEL_VERSION: str = "gemini-text-embedding-004-v1"
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ==================================================
-    # Redis (Caching / Sessions)
+    # 🤖 AI / Embeddings / Vector DB
     # ==================================================
+    PINECONE_API_KEY: str
+    PINECONE_ENVIRONMENT: Optional[str] = None
+    PINECONE_ENV: Optional[str] = None
+    PINECONE_INDEX: str = "maya2-session-memory"
+
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEYS: Optional[str] = None
+    COHERE_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: Optional[str] = None
+
+    GOOGLE_MODEL: str = "gemini-1.5-flash"
+    COHERE_MODEL: str = "command-r7b"
+    ANTHROPIC_MODEL: str = "claude-3-haiku-20240307"
+
+    EMBEDDING_MODEL_VERSION: str = "text-embedding-004"
+
+    # Timeout & failover configs
+    AI_PROVIDER_FAILURE_TIMEOUT: int = 60
+    AI_PRIMARY_TIMEOUT: float = 2.2
+    AI_FALLBACK_TIMEOUT: float = 2.8
+    AI_TIMEOUT: int | float | None = None  # Optional unified quick-timeout for simple manager
+    AI_ENABLE_HEDGED: bool = False
+    AI_HEDGE_DELAY_MS: int = 60
+    AI_MAX_PARALLEL: int = 1
+    AI_PROVIDER_ORDER: Optional[str] = None  # Comma-separated override order
+    PRIMARY_PROVIDER: Optional[str] = None  # e.g., "gemini"
+    FALLBACK_PROVIDER: Optional[str] = None  # e.g., "cohere"
+
+    # 🧠 Neo4j Knowledge Graph
+    # ==================================================
+    NEO4J_URI: str
+    NEO4J_CONTAINER_URI: Optional[str] = None
+    NEO4J_USER: str
+    NEO4J_PASSWORD: str
+    NEO4J_STARTUP_TIMEOUT_SECS: int = 12
+    # Optional: explicit Aura database name (defaults to driver default if not set)
+    NEO4J_DATABASE: Optional[str] = None
+
+    # ==================================================
+    # ⚡ Redis (Caching / Session)
+    # ==================================================
+    # Prefer REDIS_URL for Redis Cloud (e.g., rediss://:pass@host:6380/0)
+    REDIS_URL: Optional[str] = None
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
-    REDIS_PASSWORD: str | None = None
+    REDIS_PASSWORD: Optional[str] = None
+    # Set REDIS_TLS=True when using host/port with Redis Cloud on 6380
+    REDIS_TLS: bool = False
 
     # ==================================================
-    # Neo4j Knowledge Graph
+    # 📧 Email / Notifications (SMTP)
     # ==================================================
-    NEO4J_URI: str                               # Example: bolt://localhost:7688
-    NEO4J_CONTAINER_URI: str | None = None       # Optional container override
-    NEO4J_USER: str
-    NEO4J_PASSWORD: str
-
-    # ==================================================
-    # Email / Notifications (SMTP)
-    # ==================================================
-    MAIL_USERNAME: str                           # Gmail address
-    MAIL_PASSWORD: str                           # Gmail app password
-    MAIL_FROM: str                               # Sender email
+    MAIL_USERNAME: str
+    MAIL_PASSWORD: str
+    MAIL_FROM: str
     MAIL_SERVER: str = "smtp.gmail.com"
     MAIL_PORT: int = 587
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
 
-    SMTP_USER: str | None = None                 # Backward compatibility
-    SMTP_PASS: str | None = None                 # Backward compatibility
+    SMTP_USER: Optional[str] = None
+    SMTP_PASS: Optional[str] = None
 
     # ==================================================
-    # API Limits / Quotas
+    # 📊 API Limits / Quotas
     # ==================================================
     API_MONTHLY_LIMIT: int = 20
 
     # ==================================================
-    # Feature Toggles / Personalization
+    # 🧬 Feature Toggles / Personalization
     # ==================================================
     ENABLE_PERSONA_RESPONSE: bool = True
     PERSONA_STYLE: str = "best_friend"
@@ -99,14 +118,14 @@ class Settings(BaseSettings):
     EMOJI_MAX_TOTAL: int = 6
 
     # ==================================================
-    # External APIs
+    # 🌐 External APIs
     # ==================================================
-    YOUTUBE_API_KEY: str | None = None
-    NEWS_API_KEY: str | None = None
-    WEATHER_API_KEY: str | None = None
+    YOUTUBE_API_KEY: Optional[str] = None
+    NEWS_API_KEY: Optional[str] = None
+    WEATHER_API_KEY: Optional[str] = None
 
     # ==================================================
-    # Pydantic Configuration
+    # 🧩 Pydantic Settings
     # ==================================================
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[1] / ".env"),
@@ -115,22 +134,30 @@ class Settings(BaseSettings):
     )
 
     # ==================================================
-    # Post Initialization Adjustments
+    # 🧠 Post Initialization Adjustments
     # ==================================================
     def model_post_init(self, __context) -> None:
         """Normalize and auto-fill environment variables."""
         try:
-            # Normalize Pinecone env var name
+            # Normalize Pinecone env var
             if not self.PINECONE_ENVIRONMENT and self.PINECONE_ENV:
                 object.__setattr__(self, "PINECONE_ENVIRONMENT", self.PINECONE_ENV)
 
-            # Auto-fill backward-compatible SMTP variables
+            # Backward compatibility for SMTP
             if not self.SMTP_USER and self.MAIL_USERNAME:
                 object.__setattr__(self, "SMTP_USER", self.MAIL_USERNAME)
             if not self.SMTP_PASS and self.MAIL_PASSWORD:
                 object.__setattr__(self, "SMTP_PASS", self.MAIL_PASSWORD)
 
-            # Docker environment adjustments
+            # Ensure GEMINI_API_KEYS is set from GEMINI_API_KEY if only one key is present
+            if not self.GEMINI_API_KEYS and self.GEMINI_API_KEY:
+                object.__setattr__(self, "GEMINI_API_KEYS", self.GEMINI_API_KEY)
+
+            # Backward-compatibility: if AI_TIMEOUT is missing, prefer AI_PRIMARY_TIMEOUT for simple manager
+            if not self.AI_TIMEOUT:
+                object.__setattr__(self, "AI_TIMEOUT", self.AI_PRIMARY_TIMEOUT or 8)
+
+            # Handle Docker-specific hostname adjustments
             if os.path.exists("/.dockerenv"):
                 if self.NEO4J_CONTAINER_URI:
                     object.__setattr__(self, "NEO4J_URI", self.NEO4J_CONTAINER_URI)
@@ -140,11 +167,19 @@ class Settings(BaseSettings):
                 if self.REDIS_HOST in ("localhost", "127.0.0.1"):
                     object.__setattr__(self, "REDIS_HOST", "redis")
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Config Warning] Environment normalization skipped: {e}")
 
 
 # ==================================================
-# Global Settings Instance
+# 🌍 Global Settings Instance
 # ==================================================
 settings = Settings()
+
+# Optional: log loaded environment for debugging (safe fields only)
+if os.getenv("DEBUG_CONFIG", "false").lower() == "true":
+    print("\n[✅ Config Loaded Successfully]")
+    print(f"MongoDB: {settings.MONGO_DB}")
+    print(f"Neo4j: {settings.NEO4J_URI}")
+    print(f"Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+    print(f"Gemini: {bool(settings.GEMINI_API_KEY)} | Cohere: {bool(settings.COHERE_API_KEY)} | Anthropic: {bool(settings.ANTHROPIC_API_KEY)}\n")
