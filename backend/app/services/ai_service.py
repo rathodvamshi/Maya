@@ -328,18 +328,28 @@ def _derive_provider_order() -> List[str]:
     """Return current provider preference order.
 
     Priority: explicit env override > PRIMARY/FALLBACK envs > default static order.
+    Defaults to Gemini-only for consistency with embeddings.
     """
     order_env = (settings.AI_PROVIDER_ORDER or "").strip()
     if order_env:
         items = [s.strip().lower() for s in order_env.split(",") if s.strip()]
         return [p for p in items if p in {"gemini", "cohere", "anthropic"}]
+    
+    # Default to Gemini-only for consistency with embeddings and memory system
     primary = (getattr(settings, "PRIMARY_PROVIDER", None) or "gemini").lower()
-    fallback = (getattr(settings, "FALLBACK_PROVIDER", None) or "cohere").lower()
+    fallback = (getattr(settings, "FALLBACK_PROVIDER", None) or "gemini").lower()
+    
     out: List[str] = []
-    for p in (primary, fallback, "anthropic"):
+    for p in (primary, fallback):
         if p in {"gemini", "cohere", "anthropic"} and p not in out:
             out.append(p)
-    return out or ["gemini", "cohere", "anthropic"]
+    
+    # Ensure Gemini is always first for consistency
+    if "gemini" in out:
+        out.remove("gemini")
+        out.insert(0, "gemini")
+    
+    return out or ["gemini"]
 
 AI_PROVIDERS = _derive_provider_order()
 
@@ -1325,12 +1335,19 @@ def extract_facts_from_text(text: str) -> Optional[Dict[str, Any]]:
     ---
     """
     try:
-        # Use the providers most suited for structured output
-        fact_sequence = [
-            ("cohere", _try_cohere),
-            ("gemini", _try_gemini),
-            ("anthropic", _try_anthropic),
-        ]
+        # Build provider sequence (configurable). Default now prefers Gemini first.
+        order_env = getattr(settings, "FACT_EXTRACT_PROVIDER_ORDER", None)
+        if order_env:
+            names = [n.strip().lower() for n in order_env.split(',') if n.strip()]
+        else:
+            names = ["gemini", "cohere", "anthropic"]
+        # Map names to callables (skip unknown silently)
+        name_map = {
+            "gemini": _try_gemini,
+            "cohere": _try_cohere,
+            "anthropic": _try_anthropic,
+        }
+        fact_sequence = [(n, name_map[n]) for n in names if n in name_map]
         raw_response = ""
         for idx, (name, func) in enumerate(fact_sequence):
             if not _is_provider_available(name):

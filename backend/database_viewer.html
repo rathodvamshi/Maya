@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Inspector - Maya Project</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .database-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .database-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .database-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+        }
+        .status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        .status.ready {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .btn.secondary {
+            background: #6c757d;
+        }
+        .btn.secondary:hover {
+            background: #545b62;
+        }
+        .data-section {
+            margin-top: 15px;
+        }
+        .data-item {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 5px 0;
+        }
+        .json-viewer {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Database Inspector</h1>
+            <p>View all data in Pinecone, Neo4j, and Redis</p>
+        </div>
+
+        <div class="database-card">
+            <div class="database-header">
+                <div class="database-title">🌐 System Health</div>
+                <button class="btn" onclick="checkHealth()">Check Health</button>
+            </div>
+            <div id="health-status" class="loading">Click "Check Health" to view system status</div>
+        </div>
+
+        <div class="database-card">
+            <div class="database-header">
+                <div class="database-title">🔍 Pinecone (Vector Database)</div>
+                <div>
+                    <button class="btn" onclick="inspectPinecone()">Inspect</button>
+                    <button class="btn secondary" onclick="clearData('pinecone')">Clear</button>
+                </div>
+            </div>
+            <div id="pinecone-data" class="loading">Click "Inspect" to view Pinecone data</div>
+        </div>
+
+        <div class="database-card">
+            <div class="database-header">
+                <div class="database-title">🧠 Neo4j (Knowledge Graph)</div>
+                <div>
+                    <button class="btn" onclick="inspectNeo4j()">Inspect</button>
+                    <button class="btn secondary" onclick="clearData('neo4j')">Clear</button>
+                </div>
+            </div>
+            <div id="neo4j-data" class="loading">Click "Inspect" to view Neo4j data</div>
+        </div>
+
+        <div class="database-card">
+            <div class="database-header">
+                <div class="database-title">⚡ Redis (Cache & Sessions)</div>
+                <div>
+                    <button class="btn" onclick="inspectRedis()">Inspect</button>
+                    <button class="btn secondary" onclick="clearData('redis')">Clear</button>
+                </div>
+            </div>
+            <div id="redis-data" class="loading">Click "Inspect" to view Redis data</div>
+        </div>
+
+        <div class="database-card">
+            <div class="database-header">
+                <div class="database-title">📊 All Databases</div>
+                <button class="btn" onclick="inspectAll()">Inspect All</button>
+            </div>
+            <div id="all-data" class="loading">Click "Inspect All" to view all databases</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000/api/inspector';
+        
+        async function makeRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer your-jwt-token-here' // Replace with actual token
+                    },
+                    ...options
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Request failed:', error);
+                throw error;
+            }
+        }
+
+        async function checkHealth() {
+            const element = document.getElementById('health-status');
+            element.innerHTML = '<div class="loading">Checking system health...</div>';
+            
+            try {
+                const data = await makeRequest(`${API_BASE}/health`);
+                
+                let html = '<div class="stats">';
+                
+                // Pinecone status
+                const pineconeStatus = data.pinecone.ready ? 'ready' : 'error';
+                const pineconeText = data.pinecone.ready ? 'Ready' : 'Not Ready';
+                html += `
+                    <div class="stat-card">
+                        <div class="stat-number">${data.pinecone.stats?.total_vector_count || 0}</div>
+                        <div class="stat-label">Pinecone Vectors</div>
+                        <div class="status ${pineconeStatus}">${pineconeText}</div>
+                    </div>
+                `;
+                
+                // Neo4j status
+                const neo4jStatus = data.neo4j.ready ? 'ready' : 'error';
+                const neo4jText = data.neo4j.ready ? 'Ready' : 'Not Ready';
+                html += `
+                    <div class="stat-card">
+                        <div class="stat-number">${data.neo4j.info?.nodes || 0}</div>
+                        <div class="stat-label">Neo4j Nodes</div>
+                        <div class="status ${neo4jStatus}">${neo4jText}</div>
+                    </div>
+                `;
+                
+                // Redis status
+                const redisStatus = data.redis.ready ? 'ready' : 'error';
+                const redisText = data.redis.ready ? 'Ready' : 'Not Ready';
+                html += `
+                    <div class="stat-card">
+                        <div class="stat-number">${data.redis.key_count || 0}</div>
+                        <div class="stat-label">Redis Keys</div>
+                        <div class="status ${redisStatus}">${redisText}</div>
+                    </div>
+                `;
+                
+                html += '</div>';
+                element.innerHTML = html;
+                
+            } catch (error) {
+                element.innerHTML = `<div class="error">Failed to check health: ${error.message}</div>`;
+            }
+        }
+
+        async function inspectPinecone() {
+            const element = document.getElementById('pinecone-data');
+            element.innerHTML = '<div class="loading">Inspecting Pinecone...</div>';
+            
+            try {
+                const data = await makeRequest(`${API_BASE}/pinecone?top_k=50`);
+                
+                let html = `
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-number">${data.total_vectors}</div>
+                            <div class="stat-label">Total Vectors</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.stats?.dimension || 'N/A'}</div>
+                            <div class="stat-label">Dimensions</div>
+                        </div>
+                    </div>
+                `;
+                
+                if (data.vectors && data.vectors.length > 0) {
+                    html += '<h4>Sample Vectors:</h4>';
+                    data.vectors.slice(0, 5).forEach((vector, index) => {
+                        html += `
+                            <div class="data-item">
+                                <strong>Vector ${index + 1}:</strong> ${vector.id}<br>
+                                <strong>Score:</strong> ${vector.score}<br>
+                                <strong>Metadata:</strong>
+                                <div class="json-viewer">${JSON.stringify(vector.metadata, null, 2)}</div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += '<p>No vectors found.</p>';
+                }
+                
+                element.innerHTML = html;
+                
+            } catch (error) {
+                element.innerHTML = `<div class="error">Failed to inspect Pinecone: ${error.message}</div>`;
+            }
+        }
+
+        async function inspectNeo4j() {
+            const element = document.getElementById('neo4j-data');
+            element.innerHTML = '<div class="loading">Inspecting Neo4j...</div>';
+            
+            try {
+                const data = await makeRequest(`${API_BASE}/neo4j`);
+                
+                let html = `
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-number">${data.summary.total_nodes}</div>
+                            <div class="stat-label">Nodes</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.summary.total_relationships}</div>
+                            <div class="stat-label">Relationships</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.summary.total_users}</div>
+                            <div class="stat-label">Users</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.summary.total_concepts}</div>
+                            <div class="stat-label">Concepts</div>
+                        </div>
+                    </div>
+                `;
+                
+                if (data.users && data.users.length > 0) {
+                    html += '<h4>Users:</h4>';
+                    data.users.forEach((user, index) => {
+                        html += `
+                            <div class="data-item">
+                                <strong>User ${index + 1}:</strong>
+                                <div class="json-viewer">${JSON.stringify(user.u, null, 2)}</div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                if (data.concepts && data.concepts.length > 0) {
+                    html += '<h4>Concepts:</h4>';
+                    data.concepts.slice(0, 5).forEach((concept, index) => {
+                        html += `
+                            <div class="data-item">
+                                <strong>Concept ${index + 1}:</strong>
+                                <div class="json-viewer">${JSON.stringify(concept.c, null, 2)}</div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                element.innerHTML = html;
+                
+            } catch (error) {
+                element.innerHTML = `<div class="error">Failed to inspect Neo4j: ${error.message}</div>`;
+            }
+        }
+
+        async function inspectRedis() {
+            const element = document.getElementById('redis-data');
+            element.innerHTML = '<div class="loading">Inspecting Redis...</div>';
+            
+            try {
+                const data = await makeRequest(`${API_BASE}/redis`);
+                
+                let html = `
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-number">${data.total_keys}</div>
+                            <div class="stat-label">Total Keys</div>
+                        </div>
+                    </div>
+                `;
+                
+                html += '<h4>Key Categories:</h4>';
+                Object.entries(data.key_categories).forEach(([category, count]) => {
+                    html += `
+                        <div class="data-item">
+                            <strong>${category}:</strong> ${count} keys
+                        </div>
+                    `;
+                });
+                
+                if (data.detailed_data) {
+                    Object.entries(data.detailed_data).forEach(([category, items]) => {
+                        if (items && items.length > 0) {
+                            html += `<h4>${category} (${items.length} items):</h4>`;
+                            items.slice(0, 3).forEach((item, index) => {
+                                html += `
+                                    <div class="data-item">
+                                        <strong>${category} ${index + 1}:</strong> ${item.key}<br>
+                                        <strong>Type:</strong> ${item.type}<br>
+                                        ${item.value ? `<strong>Value:</strong> ${item.value}` : ''}
+                                        ${item.data ? `<div class="json-viewer">${JSON.stringify(item.data, null, 2)}</div>` : ''}
+                                    </div>
+                                `;
+                            });
+                        }
+                    });
+                }
+                
+                element.innerHTML = html;
+                
+            } catch (error) {
+                element.innerHTML = `<div class="error">Failed to inspect Redis: ${error.message}</div>`;
+            }
+        }
+
+        async function inspectAll() {
+            const element = document.getElementById('all-data');
+            element.innerHTML = '<div class="loading">Inspecting all databases...</div>';
+            
+            try {
+                const data = await makeRequest(`${API_BASE}/all`);
+                
+                let html = '<h3>All Databases Summary:</h3>';
+                
+                Object.entries(data.databases).forEach(([dbName, dbData]) => {
+                    const status = dbData.ready ? 'ready' : 'error';
+                    const statusText = dbData.ready ? 'Ready' : 'Error';
+                    
+                    html += `
+                        <div class="data-item">
+                            <h4>${dbName.toUpperCase()}</h4>
+                            <div class="status ${status}">${statusText}</div>
+                            ${dbData.error ? `<div class="error">Error: ${dbData.error}</div>` : ''}
+                            ${dbData.stats ? `<div class="json-viewer">${JSON.stringify(dbData.stats, null, 2)}</div>` : ''}
+                        </div>
+                    `;
+                });
+                
+                element.innerHTML = html;
+                
+            } catch (error) {
+                element.innerHTML = `<div class="error">Failed to inspect all databases: ${error.message}</div>`;
+            }
+        }
+
+        function clearData(database) {
+            const element = document.getElementById(`${database}-data`);
+            element.innerHTML = '<div class="loading">Data cleared</div>';
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

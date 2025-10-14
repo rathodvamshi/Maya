@@ -36,7 +36,8 @@ def send_email(
     body: str,
     html: Optional[str] = None,
     max_retries: int = 3,
-    retry_delay: int = 5
+    retry_delay: int = 5,
+    trace_id: Optional[str] = None,
 ) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -62,12 +63,13 @@ def send_email(
                         server.starttls(context=context)
                     server.login(settings.MAIL_USERNAME, settings.MAIL_PASSWORD)
                     server.send_message(msg)
-            logger.info(f"Email sent to {recipient}")
+            logger.info(f"[EmailSend] status=success recipient={recipient} subject='{subject}' attempt={attempt+1} trace={trace_id or '-'}")
             return
         except (smtplib.SMTPException, ssl.SSLError) as e:
             attempt += 1
-            logger.warning(f"Attempt {attempt} failed to send email to {recipient}: {e}")
+            logger.warning(f"[EmailSend] status=retry recipient={recipient} attempt={attempt} error='{e}' trace={trace_id or '-'}")
             time.sleep(retry_delay)
+    logger.error(f"[EmailSend] status=failed recipient={recipient} subject='{subject}' attempts={max_retries} trace={trace_id or '-'}")
     raise EmailSendError(f"Failed to send email to {recipient} after {max_retries} attempts.")
 
 
@@ -86,3 +88,23 @@ def send_otp_email(to_email: str, otp_code: str) -> None:
     </html>
     """
     send_email(to_email, subject, body, html=html_body)
+
+
+def send_html_email(to: list, subject: str, html: str, text: str = None) -> None:
+    """
+    Send HTML email to multiple recipients as specified in requirements.
+    """
+    if not to:
+        raise ValueError("No recipients provided")
+    
+    # Use the first recipient for the main send, or send to all
+    recipient = to[0] if len(to) == 1 else ", ".join(to)
+    
+    # Use text version if provided, otherwise extract from HTML
+    if not text:
+        import re
+        # Simple HTML to text conversion
+        text = re.sub(r'<[^>]+>', '', html)
+        text = re.sub(r'\s+', ' ', text).strip()
+    
+    send_email(recipient, subject, text, html=html)

@@ -4,7 +4,25 @@ from pydantic import BaseModel, Field
 from pymongo.collection import Collection
 from datetime import datetime
 from app.security import get_current_active_user
-from app.database import get_user_collection
+from app.database import (
+    get_user_collection,
+    get_user_profile_collection,
+    get_tasks_collection,
+    get_sessions_collection,
+    get_api_keys_collection,
+    get_activity_logs_collection,
+    get_security_events_collection,
+    get_notifications_collection,
+    get_memories_collection,
+    get_memory_versions_collection,
+    get_recall_events_collection,
+    get_memory_feedback_collection,
+    get_chat_log_collection,
+    get_inline_highlights_collection,
+    get_mini_threads_collection,
+    get_mini_snippets_collection,
+    get_mini_messages_collection,
+)
 from app.services.neo4j_service import neo4j_service
 from app.services import redis_service
 from app.config import settings
@@ -240,3 +258,73 @@ async def get_preferences(current_user: dict = Depends(get_current_active_user))
     prof = profile_service.get_profile(user_id)
     # Effective simply returns stored preferences; future: blend with inferred
     return {"effective": prof.get("preferences", {})}
+
+
+# ---------------- Account Deletion ----------------
+@router.delete("/me")
+async def delete_account(current_user: dict = Depends(get_current_active_user)):
+    """Delete current user account and all associated data.
+
+    Best-effort cascading deletes across collections. Returns counts per collection.
+    """
+    user_id = str(current_user.get("_id"))
+    email = current_user.get("email")
+    deleted = {}
+    # Helper to run delete_many safely
+    def safe_delete(coll, query, label):
+        try:
+            res = coll.delete_many(query)
+            deleted[label] = getattr(res, "deleted_count", 0)
+        except Exception:
+            deleted[label] = 0
+
+    # Users: delete itself (one)
+    try:
+        users = get_user_collection()
+        dc = users.delete_one({"_id": current_user["_id"]}).deleted_count
+        deleted["users"] = dc
+    except Exception:
+        deleted["users"] = 0
+
+    # Profiles
+    safe_delete(get_user_profile_collection(), {"user_id": user_id}, "user_profiles")
+
+    # Tasks
+    safe_delete(get_tasks_collection(), {"user_id": user_id}, "tasks")
+
+    # Sessions (note: uses userId)
+    safe_delete(get_sessions_collection(), {"userId": user_id}, "sessions")
+
+    # API Keys
+    safe_delete(get_api_keys_collection(), {"user_id": user_id}, "api_keys")
+
+    # Activity & Security logs
+    safe_delete(get_activity_logs_collection(), {"user_id": user_id}, "activity_logs")
+    safe_delete(get_security_events_collection(), {"user_id": user_id}, "security_events")
+
+    # Notifications
+    safe_delete(get_notifications_collection(), {"user_id": user_id}, "notifications")
+
+    # Memories and related
+    safe_delete(get_memories_collection(), {"user_id": user_id}, "memories")
+    safe_delete(get_memory_versions_collection(), {"user_id": user_id}, "memory_versions")
+    safe_delete(get_recall_events_collection(), {"user_id": user_id}, "recall_events")
+    safe_delete(get_memory_feedback_collection(), {"user_id": user_id}, "memory_feedback")
+
+    # Chat logs
+    # Try both keys in case different schema
+    cl = get_chat_log_collection()
+    safe_delete(cl, {"user_id": user_id}, "chat_logs_uid")
+    safe_delete(cl, {"userId": user_id}, "chat_logs_uId")
+
+    # Inline highlights
+    safe_delete(get_inline_highlights_collection(), {"user_id": user_id}, "inline_highlights")
+
+    # Mini agent
+    safe_delete(get_mini_threads_collection(), {"user_id": user_id}, "mini_threads")
+    safe_delete(get_mini_snippets_collection(), {"user_id": user_id}, "mini_snippets")
+    safe_delete(get_mini_messages_collection(), {"user_id": user_id}, "mini_messages")
+
+    # Optional: additional cleanups could be added here
+
+    return {"message": "Account deleted", "user_id": user_id, "email": email, "deleted": deleted}

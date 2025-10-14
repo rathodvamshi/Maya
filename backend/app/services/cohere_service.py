@@ -2,6 +2,7 @@
 
 import cohere
 from app.config import settings
+from typing import Iterable
 
 # ======================================================
 # 🔹 Initialize Cohere Client
@@ -16,26 +17,51 @@ except Exception as e:
 # ======================================================
 # 🔹 Text Generation
 # ======================================================
-def generate(prompt: str, model: str = "command-r") -> str:
-    """
-    Generate a conversational response using Cohere's chat API.
+def generate(prompt: str, model: str | None = None) -> str:
+    """Generate a conversational response using Cohere's chat API with graceful model fallback.
 
-    Args:
-        prompt (str): The user input or system prompt.
-        model (str): Cohere model name (default: "command-r").
+    Resolution order:
+      1. Explicit model param if provided
+      2. settings.COHERE_MODEL
+      3. Internal fallback list (kept in sync with Cohere public docs)
 
-    Returns:
-        str: The AI-generated response text.
+    If the current model has been sunset (404 w/ removal message) we try the next one.
     """
     if not co:
         raise ConnectionError("Cohere service is not configured.")
 
-    try:
-        response = co.chat(message=prompt, model=model)
-        return response.text.strip()
-    except Exception as e:
-        print(f"[ERROR] Cohere.generate failed: {e}")
-        raise
+    preferred = []
+    if model:
+        preferred.append(model)
+    if settings.COHERE_MODEL and settings.COHERE_MODEL not in preferred:
+        preferred.append(settings.COHERE_MODEL)
+
+    # Cohere current (Oct 2025) publicly available Command family examples.
+    fallback_sequence: Iterable[str] = (
+        "command-r7b",
+        "command-r-plus",
+        "command-light",
+    )
+    for m in fallback_sequence:
+        if m not in preferred:
+            preferred.append(m)
+
+    last_error: Exception | None = None
+    for candidate in preferred:
+        try:
+            response = co.chat(message=prompt, model=candidate)
+            return (response.text or "").strip()
+        except Exception as e:  # noqa: BLE001 broad to allow retry loop
+            # Detect sunset / removal 404 to continue; otherwise break
+            msg = str(e)
+            if "404" in msg and ("removed" in msg.lower() or "not found" in msg.lower()):
+                print(f"[WARN] Cohere model '{candidate}' unavailable (sunset?). Trying next.")
+                last_error = e
+                continue
+            last_error = e
+            break
+    print(f"[ERROR] Cohere.generate failed after fallbacks: {last_error}")
+    raise last_error if last_error else RuntimeError("Unknown Cohere failure")
 
 
 # ======================================================
@@ -66,3 +92,25 @@ def create_embedding(
     except Exception as e:
         print(f"[ERROR] Cohere.create_embedding failed: {e}")
         raise
+
+
+# ======================================================
+# 🔹 Simple Self-Test (manual invocation)
+# ======================================================
+def _self_test():  # pragma: no cover - dev helper
+    sample = "Hello from Maya test."
+    try:
+        print("[SELFTEST] Generating chat response...")
+        resp = generate(sample)
+        print("[SELFTEST] Chat OK:", resp[:120])
+    except Exception as e:
+        print("[SELFTEST] Chat FAILED:", e)
+    try:
+        print("[SELFTEST] Creating embedding...")
+        emb = create_embedding(sample)
+        print("[SELFTEST] Embedding length:", len(emb))
+    except Exception as e:
+        print("[SELFTEST] Embedding FAILED:", e)
+
+if __name__ == "__main__":  # pragma: no cover
+    _self_test()

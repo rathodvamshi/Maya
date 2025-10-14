@@ -1,0 +1,23 @@
+{
+  "timestamp": "2025-10-15T02:24:17.323425",
+  "database_info": {
+    "status": "connected",
+    "database": "neo4j",
+    "nodes": 0,
+    "relationships": 0,
+    "uri": "neo4j+s://bb2cd868.databases.neo4j.io"
+  },
+  "nodes": [],
+  "relationships": [],
+  "nodes_by_label": {},
+  "relationships_by_type": {},
+  "users": [],
+  "concepts": [],
+  "facts": [],
+  "summary": {
+    "total_nodes": 0,
+    "total_relationships": 0,
+    "node_labels": [],
+    "relationship_types": []
+  }
+}

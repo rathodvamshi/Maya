@@ -73,7 +73,22 @@ class MemoryManager:
             pine = []
             if memory_type in (None, "long-term"):
                 if query:
+                    # Enhanced query with multiple memory types
                     pine = pinecone_service.query_user_memories(user_id, query, top_k=8)
+                    
+                    # Also get user facts for better context
+                    try:
+                        user_facts = pinecone_service.query_user_facts(user_id, query, top_k=5)
+                        for fact in user_facts:
+                            pine.append({
+                                "memory_id": f"fact_{hash(fact)}",
+                                "similarity": 0.8,  # Default similarity for facts
+                                "text": fact,
+                                "lifecycle_state": "active",
+                                "type": "user_fact"
+                            })
+                    except Exception as e:
+                        logger.debug(f"Failed to get user facts: {e}")
                 else:
                     # No query provided -> fall back to latest memories from Mongo for context
                     try:
@@ -85,6 +100,7 @@ class MemoryManager:
                                 "similarity": None,
                                 "text": f"{m.get('title')}: {m.get('value','')}",
                                 "lifecycle_state": m.get("lifecycle_state"),
+                                "type": "structured_memory"
                             }
                             for m in raw
                         ]
@@ -100,6 +116,12 @@ class MemoryManager:
                 "pinecone": pine,
                 "neo4j": graph,
             }
+            
+            # Log successful memory retrieval
+            if pine or graph:
+                logger.info(f"Retrieved memories for user {user_id}: "
+                           f"pinecone={len(pine)}, neo4j={bool(graph)}, session={session_id}")
+            
             return merged
         except Exception as e:
             logger.error(f"get_memory failed: {e}")

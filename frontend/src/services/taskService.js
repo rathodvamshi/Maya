@@ -50,6 +50,46 @@ class TaskService {
     }
   }
 
+  async verifyOtp(taskId, otp) {
+    try {
+      const response = await apiClient.post(`/tasks/${taskId}/verify-otp`, { otp });
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Error verifying task OTP:', error);
+      return { success: false, error: error.response?.data?.detail || 'Failed to verify OTP' };
+    }
+  }
+
+  async rescheduleTask(taskId, payload) {
+    try {
+      const response = await apiClient.post(`/tasks/${taskId}/reschedule`, payload);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Error rescheduling task:', error);
+      return { success: false, error: error.response?.data?.detail || 'Failed to reschedule task' };
+    }
+  }
+
+  async getSummary(limit = 5) {
+    try {
+      const response = await apiClient.get(`/tasks/summary?limit=${limit}`);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Error fetching tasks summary:', error);
+      return { success: false, error: error.response?.data?.detail || 'Failed to fetch summary' };
+    }
+  }
+
+  async getUpcomingTasksSummary(limit = 5) {
+    try {
+      const response = await apiClient.get(`/tasks/summary?limit=${limit}`);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Error fetching upcoming tasks summary:', error);
+      return { success: false, error: error.response?.data?.detail || 'Failed to fetch upcoming tasks summary' };
+    }
+  }
+
   async getTask(taskId) {
     try {
       const response = await apiClient.get(`/tasks/${taskId}`);

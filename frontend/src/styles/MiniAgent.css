@@ -21,7 +21,11 @@
   box-shadow: var(--mini-shadow);
   backdrop-filter: blur(8px);
   overflow: hidden;
+  transform: translateY(6px) scale(0.98);
+  animation: mini-pop-in .22s ease forwards;
 }
+
+@keyframes mini-pop-in { to { transform: translateY(0) scale(1); } }
 
 /* Header */
 .mini-agent-header {
@@ -260,6 +264,8 @@
 @media (max-width: 560px) {
   .mini-agent-panel {
     border-radius: 12px;
+    width: min(96vw, 360px) !important;
+    height: min(70vh, 520px) !important;
   }
   .mini-input {
     grid-template-columns: 1fr auto;

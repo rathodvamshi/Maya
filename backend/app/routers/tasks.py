@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from bson import ObjectId, errors
-import dateparser
+import dateparser  # retained for any legacy parsing paths
 import pytz
 import logging
 from pymongo.errors import OperationFailure
@@ -18,6 +18,8 @@ from app.models import (
 )
 from app.database import get_tasks_collection
 from app.security import get_current_active_user
+from app.utils.time_utils import parse_user_time_ist
+from app.services import task_service
 
 logger = logging.getLogger(__name__)
 
@@ -87,28 +89,16 @@ def _to_naive_utc_from_parsed(dt_obj: Optional[datetime]) -> Optional[datetime]:
 
 # --------- Date parsing --------------------------------
 def _parse_when_to_due_date(when: Optional[str], timezone: Optional[str], prefer_future: bool = True) -> Optional[datetime]:
-    """
-    Parse a 'when' expression (natural language) into a naive UTC datetime for storage.
-    Returns naive UTC datetime (tzinfo removed) or None on failure.
+    """IST-enforced natural language parse: ignores provided timezone and treats input as Asia/Kolkata.
+    Returns naive UTC datetime for storage or None.
     """
     if not when:
         return None
     try:
-        tzname = timezone or "UTC"
-        settings = {
-            "TIMEZONE": tzname,
-            "TO_TIMEZONE": "UTC",
-            "RETURN_AS_TIMEZONE_AWARE": True,
-            "PREFER_DATES_FROM": "future" if prefer_future else "past",
-        }
-        dt = dateparser.parse(when, settings=settings)
-        if dt:
-            # convert to UTC and remove tzinfo for Mongo naive storage convention
-            dt_utc = dt.astimezone(pytz.UTC).replace(tzinfo=None)
-            return dt_utc
+        return parse_user_time_ist(when, prefer_future=prefer_future)
     except Exception as exc:
-        logger.debug("dateparser parse error for %r tz=%r: %s", when, timezone, exc)
-    return None
+        logger.debug("IST parse error for %r: %s", when, exc)
+        return None
 
 # --------- Index helper (call on startup) ----------
 def create_task_indexes(tasks_collection):
@@ -339,6 +329,94 @@ async def create_task_alias(
     tasks = Depends(get_tasks_collection),
 ):
     return await create_task(task_in, current_user, tasks)  # type: ignore[arg-type]
+
+
+# ----------------------------
+# OTP Verification & Reschedule & Summary
+# ----------------------------
+
+@router.post("/{task_id}/verify-otp")
+async def verify_task_otp(
+    task_id: str,
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Verify OTP for a task (optional audit endpoint).
+    Since auto-complete is triggered, OTP verification is optional.
+    """
+    otp = str(payload.get("otp") or "").strip()
+    if not otp:
+        raise HTTPException(status_code=400, detail="OTP required")
+    
+    try:
+        result = task_service.verify_otp(current_user, task_id, otp)
+        
+        if result.get("verified"):
+            return {"status": "success", "message": "OTP verified successfully"}
+        else:
+            reason = result.get("reason", "unknown")
+            if reason == "otp_expired_or_missing":
+                raise HTTPException(status_code=410, detail="OTP expired or not found")
+            else:
+                raise HTTPException(status_code=400, detail="Invalid OTP")
+                
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.exception(f"OTP verification failed for task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{task_id}/reschedule")
+async def reschedule_task_endpoint(
+    task_id: str,
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_active_user),
+):
+    new_due = payload.get("due_date") or payload.get("when")
+    if not new_due:
+        raise HTTPException(status_code=400, detail="due_date or when required")
+    # Parse if string
+    if isinstance(new_due, str):
+        parsed = _parse_when_to_due_date(new_due, payload.get("timezone") or None, prefer_future=True)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="invalid due_date")
+        new_due = parsed
+    try:
+        doc = task_service.reschedule_task(current_user, task_id, new_due)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return _to_task_response(doc)
+    except ValueError as e:
+        if str(e) == "not_found":
+            raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to reschedule task")
+
+
+@router.get("/summary")
+async def tasks_summary(
+    limit: int = Query(5, ge=1, le=20),
+    current_user: dict = Depends(get_current_active_user),
+):
+    try:
+        items = task_service.list_upcoming_summary(current_user, limit=limit)
+        return [
+            {
+                "_id": i.get("_id"),
+                "title": i.get("title"),
+                "due_date": i.get("due_date"),
+                "priority": i.get("priority"),
+                "status": i.get("status"),
+            }
+            for i in items
+        ]
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to get summary")
 
 
 @router.get("/{task_id}", response_model=Task)

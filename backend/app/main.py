@@ -19,11 +19,13 @@ from app.routers import memories as memories_router
 from app.routers import annotations as annotations_router
 from app.routers import tasks, profile, dashboard, ops
 from app.routers import youtube as youtube_router
+from app.routers import enhanced_memory, database_inspector, data_management
 from app.config import settings
 from app.services import advanced_emotion
 from app.utils.rate_limit import RateLimiter
 from app.services.neo4j_service import neo4j_service
 from app.services import pinecone_service, redis_service
+from app.services.enhanced_memory_service import enhanced_memory_service
 from app.database import db_client
 
 # --- Lifespan Management for Connections ---
@@ -56,6 +58,13 @@ async def lifespan(app: FastAPI):
             remaining = neo4j_timeout - elapsed
             print(f"⏳ Waiting for Neo4j… (elapsed {elapsed:.1f}s, ~{max(0, remaining):.1f}s left)")
             last_log = elapsed
+    
+    # Initialize enhanced memory service
+    try:
+        await asyncio.wait_for(enhanced_memory_service.initialize(), timeout=20.0)
+        print("✅ Enhanced memory service initialized")
+    except Exception as e:
+        print(f"⚠️ Enhanced memory service init skipped or timed out: {e}")
     if not getattr(neo4j_service, '_driver', None):
         print(f"⚠️ Neo4j not available after {neo4j_timeout:.1f}s – continuing in degraded mode (graph features disabled)")
     
@@ -302,6 +311,9 @@ app.include_router(mini_agent.router)
 app.include_router(annotations_router.router)
 app.include_router(youtube_router.router)
 app.include_router(assistant_router.router)
+app.include_router(enhanced_memory.router)
+app.include_router(database_inspector.router)
+app.include_router(data_management.router)
 
 @app.on_event("startup")
 async def _warm_advanced_emotion():

@@ -1,0 +1,322 @@
+{
+  "timestamp": "2025-10-15T02:24:59.824404",
+  "total_keys": 32,
+  "key_categories": {
+    "sessions": 13,
+    "users": 6,
+    "facts": 0,
+    "profiles": 0,
+    "states": 8,
+    "other": 5
+  },
+  "detailed_data": {
+    "sessions": [
+      {
+        "key": "sess:68eeafd36a42c829a3c7fda9:msgs",
+        "type": "list",
+        "ttl": 256997,
+        "length": 4,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"what it my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m all ears \\u2014 no rush, no pressure. Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}",
+          "{\"role\": \"user\", \"content\": \"what it my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m all ears \\u2014 no rush, no pressure. Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}"
+        ]
+      },
+      {
+        "key": "sess:68ee3ff890b006d86509c805:msgs",
+        "type": "list",
+        "ttl": 228352,
+        "length": 4,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I don't have your name on file. \\ud83d\\udcac What is your preferred name? \\ud83e\\udd16\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}",
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I don't have your name on file. \\ud83d\\udcac What is your preferred name? \\ud83e\\udd16\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}"
+        ]
+      },
+      {
+        "key": "sess:68eeabd46a42c829a3c7fd92:msgs",
+        "type": "list",
+        "ttl": 256009,
+        "length": 2,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"Hello maya , give me java factorial code\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m here \\ud83d\\ude42 what\\u2019s on your mind? ```java\\npublic class Factorial {\\n\\n    public static long calculateFactorial(int n) {\\n        if (n < 0) {\\n            throw new IllegalArgumentException(\\\"Factorial is not defined for negative numbers.\\\");\\n        }\\n        if (n == 0 || n == 1) {\\n            return 1;\\n        }\\n        long result = 1;\\n        for (int i = 2; i <= n; i++) {\\n            result *= i;\\n        }\\n        return result;\\n    }\\n\\n    public static void main(String[] args) {\\n        int number = 5;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number)); // Output: 120\\n\\n        number = 0;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number)); // Output: 1\\n\\n        number = 10;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number)); // Output: 3628800\\n    }\\n}\\n```\\n\\u279d Want a fun fact to start?\\n\\u279d Need help with something specific today?\"}"
+        ]
+      },
+      {
+        "key": "sess:68ee7a1bc30bf1d6b87f77c1:msgs",
+        "type": "list",
+        "ttl": 243251,
+        "length": 2,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"remind me to sleep at 10:00 pm today\"}",
+          "{\"role\": \"assistant\", \"content\": \"I've set the following reminders:\\n- sleep You'll get an email notification then.\"}"
+        ]
+      },
+      {
+        "key": "sess:68ee93175e17ca69d2397a1a:msgs",
+        "type": "list",
+        "ttl": 249699,
+        "length": 4,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"remind me to study at 11:48 pm today\"}",
+          "{\"role\": \"assistant\", \"content\": \"That time has already passed. Please choose a future time.\"}",
+          "{\"role\": \"user\", \"content\": \"remind me to study at 11:48 pm IST today\"}",
+          "{\"role\": \"assistant\", \"content\": \"I've set the following reminders:\\n- study You'll get an email notification then.\"}"
+        ]
+      },
+      {
+        "key": "sess:68eeb6a6af65b05d628c6975:msgs",
+        "type": "list",
+        "ttl": 258740,
+        "length": 4,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m here \\ud83d\\ude42 what\\u2019s on your mind? Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}",
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m here \\ud83d\\ude42 what\\u2019s on your mind? Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}"
+        ]
+      },
+      {
+        "key": "sess:68eeb5b0af65b05d628c696b:msgs",
+        "type": "list",
+        "ttl": 258537,
+        "length": 8,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"Just checking in \\ud83d\\udc9b want to talk about anything? I don't have your name on file. \\ud83d\\udcac What would you like me to call you? \\ud83e\\udd16\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}",
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"Just checking in \\ud83d\\udc9b want to talk about anything? I don't have your name on file. \\ud83d\\udcac What would you like me to call you? \\ud83e\\udd16\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}",
+          "{\"role\": \"user\", \"content\": \"my name is Rathod\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m all ears \\u2014 no rush, no pressure. Thank you, Rathod! \\ud83d\\udcac I'll remember that. \\ud83e\\udd16 It's nice to finally know what to call you. \\ud83d\\udcac How can I help you today?\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}",
+          "{\"role\": \"user\", \"content\": \"my name is Rathod\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m all ears \\u2014 no rush, no pressure. Thank you, Rathod! \\ud83d\\udcac I'll remember that. \\ud83e\\udd16 It's nice to finally know what to call you. \\ud83d\\udcac How can I help you today?\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}"
+        ]
+      },
+      {
+        "key": "sess:68ee3e5890b006d86509c7fb:msgs",
+        "type": "list",
+        "ttl": 228189,
+        "length": 8,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"Hello maya\"}",
+          "{\"role\": \"assistant\", \"content\": \"Hello! \\ud83d\\udcac How can I help you today? \\ud83e\\udd16\\n\\u279d Want a fun fact to start?\\n\\u279d Need help with something specific today?\"}",
+          "{\"role\": \"user\", \"content\": \"Hello maya\"}",
+          "{\"role\": \"assistant\", \"content\": \"Hello! \\ud83d\\udcac How can I help you today? \\ud83e\\udd16\\n\\u279d Want a fun fact to start?\\n\\u279d Need help with something specific today?\"}",
+          "{\"role\": \"user\", \"content\": \"my name is Rathod\"}",
+          "{\"role\": \"assistant\", \"content\": \"Thanks for letting me know, Rathod! \\ud83d\\udcac How can I help you today? \\ud83e\\udd16\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}",
+          "{\"role\": \"user\", \"content\": \"my name is Rathod\"}",
+          "{\"role\": \"assistant\", \"content\": \"Thanks for letting me know, Rathod! \\ud83d\\udcac How can I help you today? \\ud83e\\udd16\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}"
+        ]
+      },
+      {
+        "key": "sess:68ee5d7f56b69e591dfcdc07:msgs",
+        "type": "list",
+        "ttl": 236027,
+        "length": 4,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"Remind me to sleep at at 8:00 pm today\"}",
+          "{\"role\": \"assistant\", \"content\": \"That time has already passed. Please choose a future time.\"}",
+          "{\"role\": \"user\", \"content\": \"can u give java factorail simple code and well strctured\"}",
+          "{\"role\": \"assistant\", \"content\": \"Here's a simple and well-structured Java code for factorial:\\n\\n```java\\npublic class FactorialCalculator {\\n\\n    // Method to calculate factorial recursively\\n    public static long calculateFactorial(int n) {\\n        if (n < 0) {\\n            throw new IllegalArgumentException(\\\"Factorial is not defined for negative numbers.\\\");\\n        }\\n        if (n == 0 || n == 1) {\\n            return 1;\\n        } else {\\n            return n * calculateFactorial(n - 1);\\n        }\\n    }\\n\\n    public static void main(String[] args) {\\n        int number = 5; // Example number\\n        try {\\n            long result = calculateFactorial(number);\\n            System.out.println(\\\"The factorial of \\\" + number + \\\" is: \\\" + result); // Output: The factorial of 5 is: 120\\n        } catch (IllegalArgumentException e) {\\n            System.out.println(e.getMessage());\\n        }\\n\\n        int anotherNumber = 0; // Example for 0\\n        try {\\n            long resultZero = calculateFactorial(anotherNumber);\\n            System.out.println(\\\"The factorial of \\\" + anotherNumber + \\\" is: \\\" + resultZero); // Output: The factorial of 0 is: 1\\n        } catch (IllegalArgumentException e) {\\n            System.out.println(e.getMessage());\\n        }\\n    }\\n}\\n```\\n\\u279d Want a concise summary?\\n\\u279d Need an example to solidify it?\"}"
+        ]
+      },
+      {
+        "key": "sess:68eeae876a42c829a3c7fda0:msgs",
+        "type": "list",
+        "ttl": 256705,
+        "length": 8,
+        "items": [
+          "{\"role\": \"user\", \"content\": \"my name is Rathod , i like blue color\"}",
+          "{\"role\": \"assistant\", \"content\": \"Just checking in \\ud83d\\udc9b want to talk about anything? \\ud83d\\ude14 Hello Rathod, it's nice to know you like blue. \\ud83d\\udc9b Is there anything specific on your mind, Rathod? \\ud83e\\udd17\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}",
+          "{\"role\": \"user\", \"content\": \"my name is Rathod , i like blue color\"}",
+          "{\"role\": \"assistant\", \"content\": \"Just checking in \\ud83d\\udc9b want to talk about anything? \\ud83d\\ude14 Hello Rathod, it's nice to know you like blue. \\ud83d\\udc9b Is there anything specific on your mind, Rathod? \\ud83e\\udd17\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\"}",
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m all ears \\u2014 no rush, no pressure. Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}",
+          "{\"role\": \"user\", \"content\": \"what is my name\"}",
+          "{\"role\": \"assistant\", \"content\": \"I\\u2019m all ears \\u2014 no rush, no pressure. Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\"}"
+        ]
+      }
+    ],
+    "users": [
+      {
+        "key": "user:68ed00bab3333a2a39941f26:memory_freq:68eeaece6a42c829a3c7fda8",
+        "type": "string",
+        "ttl": -1,
+        "value": "1"
+      },
+      {
+        "key": "user:68ee90a49bbb40447ee2a072:msg_counter",
+        "type": "string",
+        "ttl": 76248,
+        "value": "3"
+      },
+      {
+        "key": "user:68ed00bab3333a2a39941f26:memory_freq:68eeae9a6a42c829a3c7fda4",
+        "type": "string",
+        "ttl": -1,
+        "value": "2"
+      },
+      {
+        "key": "user:68ed00bab3333a2a39941f26:msg_counter",
+        "type": "string",
+        "ttl": 55156,
+        "value": "16"
+      },
+      {
+        "key": "user:68ed00bab3333a2a39941f26:memory_freq:68eeac0f6a42c829a3c7fd94",
+        "type": "string",
+        "ttl": -1,
+        "value": "3"
+      },
+      {
+        "key": "user:68ed00bab3333a2a39941f26:memory_freq:68eeadd16a42c829a3c7fd9d",
+        "type": "string",
+        "ttl": -1,
+        "value": "3"
+      }
+    ],
+    "states": [
+      {
+        "key": "session:state:68ee3e5890b006d86509c7fb",
+        "type": "string",
+        "ttl": 55383,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68eeae876a42c829a3c7fda0",
+        "type": "string",
+        "ttl": 83899,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68ee3ff890b006d86509c805",
+        "type": "string",
+        "ttl": 55539,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68eeadb76a42c829a3c7fd99",
+        "type": "string",
+        "ttl": 83646,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68eeafd36a42c829a3c7fda9",
+        "type": "string",
+        "ttl": 84182,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68eeb5b0af65b05d628c696b",
+        "type": "string",
+        "ttl": 85726,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68ee90d59bbb40447ee2a074",
+        "type": "string",
+        "ttl": 76239,
+        "value": "general_conversation"
+      },
+      {
+        "key": "session:state:68eeb6a6af65b05d628c6975",
+        "type": "string",
+        "ttl": 85926,
+        "value": "general_conversation"
+      }
+    ],
+    "other": [
+      {
+        "key": "yt:best:my name is rathod , and i love reading , official video",
+        "type": "string",
+        "ttl": 12097,
+        "value": "{\"videoId\": \"qyB-xtaolOg\", \"url\": \"https://www.youtube.com/watch?v=qyB-xtaolOg\", \"title\": \"Triggered Insaan and Ruchika Rathore \\ud83d\\udd25pehla tu duja tu #triggardinsaan #ruchikarathore\", \"channelTitle\": \"Mastibaaz Munda\", \"thumbnail\": \"https://i.ytimg.com/vi/qyB-xtaolOg/hqdefault.jpg\", \"statistics\": {\"viewCount\": \"3002486\"}, \"_score\": 0.2687}"
+      },
+      {
+        "key": "provider:win:gemini",
+        "type": "string",
+        "ttl": 59417,
+        "value": "30"
+      },
+      {
+        "key": "persona:ctx:68ed00bab3333a2a39941f26",
+        "type": "list",
+        "ttl": 6717,
+        "length": 8,
+        "items": [
+          "[\"Hello maya , give me java factorial code\", \"I\\u2019m here \\ud83d\\ude42 what\\u2019s on your mind? ```java\\npublic class Factorial {\\n\\n    public static long calculateFactorial(int n) {\\n        if (n < 0) {\\n            throw new IllegalArgumentException(\\\"Factorial is not defined for negative numbers.\\\");\\n        }\\n        if (n == 0 || n == 1) {\\n            return 1;\\n        }\\n        long result = 1;\\n        for (int i = 2; i <= n; i++) {\\n            result *= i;\\n        }\\n        return result;\\n    }\\n\\n    public static void main(String[] args) {\\n        int number = 5;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number)); // Output: 120\\n\\n        number = 0;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number)); // Output: 1\\n\\n        number = 10;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number)); // Output: 3628800\\n    }\\n}\\n```\\n\\u279d Want a fun fact to start?\\n\\u279d Need help with something specific today?\", \"neutral\"]",
+          "[\"my name is Rathod\", \"How are you feeling right now? \\ud83d\\udcac Hello Rathod, here is the complete Java factorial code:\\n\\n```java\\npublic class Factorial {\\n\\n    public static long calculateFactorial(int n) {\\n        if (n < 0) {\\n            throw new IllegalArgumentException(\\\"Factorial is not defined for negative numbers.\\\");\\n        }\\n        if (n == 0 || n == 1) {\\n            return 1;\\n        }\\n        long result = 1;\\n        for (int i = 2; i <= n; i++) {\\n            result *= i;\\n        }\\n        return result;\\n    }\\n\\n    public static void main(String[] args) {\\n        int number = 5;\\n        System.out.println(\\\"Factorial of \\\" + number + \\\" is: \\\" + calculateFactorial(number));\\n    }\\n}\\n```\\n\\u279d Want a concise summary?\\n\\u279d Need an example to solidify it?\", \"neutral\"]",
+          "[\"my name is Rathod , i like blue color\", \"Just checking in \\ud83d\\udc9b want to talk about anything? \\ud83d\\ude14 Hello Rathod, it's nice to know you like blue. \\ud83d\\udc9b Is there anything specific on your mind, Rathod? \\ud83e\\udd17\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\", \"neutral\"]",
+          "[\"what is my name\", \"I\\u2019m all ears \\u2014 no rush, no pressure. Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\", \"neutral\"]",
+          "[\"what it my name\", \"I\\u2019m all ears \\u2014 no rush, no pressure. Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\", \"neutral\"]",
+          "[\"what is my name\", \"Just checking in \\ud83d\\udc9b want to talk about anything? I don't have your name on file. \\ud83d\\udcac What would you like me to call you? \\ud83e\\udd16\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\", \"neutral\"]",
+          "[\"my name is Rathod\", \"I\\u2019m all ears \\u2014 no rush, no pressure. Thank you, Rathod! \\ud83d\\udcac I'll remember that. \\ud83e\\udd16 It's nice to finally know what to call you. \\ud83d\\udcac How can I help you today?\\n\\u279d Want me to expand this?\\n\\u279d Need related tips or resources?\", \"neutral\"]",
+          "[\"what is my name\", \"I\\u2019m here \\ud83d\\ude42 what\\u2019s on your mind? Your name is Rathod. \\ud83d\\udcac\\n\\u279d Want a deeper breakdown with examples?\\n\\u279d Should I compare it to a related concept?\", \"neutral\"]"
+        ]
+      },
+      {
+        "key": "provider:latencies:gemini",
+        "type": "list",
+        "ttl": 55130,
+        "length": 50,
+        "items": [
+          "2254",
+          "2254",
+          "2672",
+          "2672",
+          "2548",
+          "2548",
+          "2336",
+          "2335",
+          "1302",
+          "1300"
+        ]
+      },
+      {
+        "key": "session:video:68ee3e5890b006d86509c7fb",
+        "type": "string",
+        "ttl": 55293,
+        "value": "{\"videoId\": \"qyB-xtaolOg\", \"url\": \"https://www.youtube.com/watch?v=qyB-xtaolOg\", \"title\": \"Triggered Insaan and Ruchika Rathore \\ud83d\\udd25pehla tu duja tu #triggardinsaan #ruchikarathore\", \"channelTitle\": \"Mastibaaz Munda\", \"thumbnail\": \"https://i.ytimg.com/vi/qyB-xtaolOg/hqdefault.jpg\", \"statistics\": {\"viewCount\": \"3002486\"}, \"_score\": 0.2687}"
+      }
+    ]
+  },
+  "session_data": {},
+  "profile_data": {},
+  "all_keys": [
+    "user:68ed00bab3333a2a39941f26:memory_freq:68eeaece6a42c829a3c7fda8",
+    "sess:68eeafd36a42c829a3c7fda9:msgs",
+    "session:state:68ee3e5890b006d86509c7fb",
+    "sess:68ee3ff890b006d86509c805:msgs",
+    "sess:68eeabd46a42c829a3c7fd92:msgs",
+    "session:state:68eeae876a42c829a3c7fda0",
+    "user:68ee90a49bbb40447ee2a072:msg_counter",
+    "session:state:68ee3ff890b006d86509c805",
+    "sess:68ee7a1bc30bf1d6b87f77c1:msgs",
+    "user:68ed00bab3333a2a39941f26:memory_freq:68eeae9a6a42c829a3c7fda4",
+    "user:68ed00bab3333a2a39941f26:msg_counter",
+    "yt:best:my name is rathod , and i love reading , official video",
+    "sess:68ee93175e17ca69d2397a1a:msgs",
+    "session:state:68eeadb76a42c829a3c7fd99",
+    "session:state:68eeafd36a42c829a3c7fda9",
+    "sess:68eeb6a6af65b05d628c6975:msgs",
+    "provider:win:gemini",
+    "sess:68eeb5b0af65b05d628c696b:msgs",
+    "sess:68ee3e5890b006d86509c7fb:msgs",
+    "persona:ctx:68ed00bab3333a2a39941f26",
+    "user:68ed00bab3333a2a39941f26:memory_freq:68eeac0f6a42c829a3c7fd94",
+    "sess:68ee5d7f56b69e591dfcdc07:msgs",
+    "sess:68eeae876a42c829a3c7fda0:msgs",
+    "session:state:68eeb5b0af65b05d628c696b",
+    "session:state:68ee90d59bbb40447ee2a074",
+    "provider:latencies:gemini",
+    "sess:68ee5c9556b69e591dfcdc00:msgs",
+    "sess:68ee90d59bbb40447ee2a074:msgs",
+    "user:68ed00bab3333a2a39941f26:memory_freq:68eeadd16a42c829a3c7fd9d",
+    "session:state:68eeb6a6af65b05d628c6975",
+    "session:video:68ee3e5890b006d86509c7fb",
+    "sess:68eeadb76a42c829a3c7fd99:msgs"
+  ]
+}

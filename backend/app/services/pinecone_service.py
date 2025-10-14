@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 pc: Optional[Any] = None
 index = None
 PINECONE_INDEX_NAME = settings.PINECONE_INDEX or "maya2-session-memory"
-# This dimension MUST match your embedding model. Gemini's text-embedding-004 is 768.
-REQUIRED_DIMENSION = 768
+# This dimension MUST match your embedding model. Updated to 1536 for the new Pinecone index.
+REQUIRED_DIMENSION = 1536
 
 # =====================================================
 # 🔹 Initialize Pinecone
@@ -88,7 +88,7 @@ def initialize_pinecone():
                     name=PINECONE_INDEX_NAME,
                     dimension=REQUIRED_DIMENSION,
                     metric="cosine",
-                    spec=ServerlessSpec(cloud="aws", region=(settings.PINECONE_ENVIRONMENT or "us-east-1")),
+                    spec=ServerlessSpec(cloud="aws", region=settings.PINECONE_REGION),
                 )
             bound_index = pc_obj.Index(PINECONE_INDEX_NAME)
         else:  # v2

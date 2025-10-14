@@ -324,10 +324,11 @@ class Database:
 
         try:
             tasks = self.get_tasks_collection()
-            tasks.create_index([("user_id", 1), ("status", 1)], name="user_status", background=True)
+            # Required indexes as specified in requirements
             tasks.create_index([("user_id", 1), ("due_date", 1)], name="user_due_date", background=True)
+            tasks.create_index([("user_id", 1), ("status", 1)], name="user_status", background=True)
             tasks.create_index([("user_id", 1), ("created_at", -1)], name="user_created", background=True)
-            # Text index for searching title & description; safe to call repeatedly
+            # Optional: text index on title/description for search
             try:
                 tasks.create_index([("title", "text"), ("description", "text")], name="task_text_idx", default_language="english", background=True)
             except Exception:

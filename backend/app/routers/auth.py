@@ -66,6 +66,11 @@ class UpdatePasswordRequest(BaseModel):
 class TokenRefresh(BaseModel):
     refresh_token: str
 
+class UpdateMeRequest(BaseModel):
+    username: str | None = None
+    role: str | None = None
+    hobbies: list[str] | None = None
+
 # ---- Router setup ----
 api_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 legacy_router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -304,7 +309,55 @@ async def login(payload: LoginRequest):
 
 @api_router.get("/me")
 def whoami(current_user: dict = Depends(get_current_active_user)):
-    return {"user_id": str(current_user["_id"]), "email": current_user["email"], "profile": current_user.get("profile", {})}
+    """Return current user basics sourced from the users collection.
+
+    Includes username when available to support UI displays that prefer a handle.
+    """
+    return {
+        "user_id": str(current_user["_id"]),
+        "email": current_user.get("email"),
+        "username": current_user.get("username", ""),
+        "role": current_user.get("role", ""),
+        "hobbies": current_user.get("hobbies", []),
+        "profile": current_user.get("profile", {}),
+    }
+
+@api_router.patch("/me")
+def update_me(payload: UpdateMeRequest, current_user: dict = Depends(get_current_active_user)):
+    """Update current user's core fields in the users collection.
+
+    Allows updating: username, role, hobbies.
+    Returns the updated basics payload similar to GET /me.
+    """
+    users = get_user_collection()
+    updates: dict = {}
+    if payload.username is not None:
+        updates["username"] = payload.username
+    if payload.role is not None:
+        updates["role"] = payload.role
+    if payload.hobbies is not None:
+        # Ensure list of strings
+        if not isinstance(payload.hobbies, list):
+            raise HTTPException(status_code=400, detail="hobbies must be a list of strings")
+        updates["hobbies"] = [str(h).strip() for h in payload.hobbies if str(h).strip()]
+    if not updates:
+        # Nothing to update; return current snapshot
+        return whoami(current_user)
+    try:
+        users.update_one({"_id": current_user["_id"]}, {"$set": updates})
+    except Exception as exc:
+        logger.error("Failed to update user core fields: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to update user")
+    # Re-read (best-effort)
+    fresh = users.find_one({"_id": current_user["_id"]}) or current_user
+    return {
+        "user_id": str(fresh["_id"]),
+        "email": fresh.get("email"),
+        "username": fresh.get("username", ""),
+        "role": fresh.get("role", ""),
+        "hobbies": fresh.get("hobbies", []),
+        "profile": fresh.get("profile", {}),
+    }
 
 # --- Refresh JWT token ---
 
@@ -358,6 +411,7 @@ legacy_router.post("/complete-registration")(complete_registration)
 legacy_router.post("/register")(register)
 legacy_router.post("/login")(login)
 legacy_router.get("/me")(whoami)
+legacy_router.patch("/me")(update_me)
 legacy_router.post("/refresh")(refresh)
 legacy_router.post("/update-password")(update_password)
 legacy_router.get("/email-available")(email_available)

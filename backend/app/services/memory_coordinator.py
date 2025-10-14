@@ -148,23 +148,46 @@ async def gather_memory_context(
         except Exception:  # noqa: BLE001
             profile = {}
 
-    # 4) Pinecone queries (progressive time budgeting)
+    # 4) Enhanced Pinecone queries (progressive time budgeting)
     pinecone_context = None
     user_fact_snippets: List[str] = []
     semantic_time_ms: float = 0.0
     try:
         start_sem = time.time()
+        
+        # Query similar texts from message history
         pinecone_context = pinecone_service.query_similar_texts(
             user_id=user_id, text=latest_user_message, top_k=top_k_semantic
         )
-        semantic_time_ms = (time.time() - start_sem) * 1000
-        # Only run user_fact query if within remaining budget window
-        if semantic_time_ms < semantic_budget_ms:
-            user_fact_snippets = pinecone_service.query_user_facts(
-                user_id=user_id, hint_text=latest_user_message, top_k=top_k_user_facts
+        
+        # Query user facts and memories
+        user_fact_snippets = pinecone_service.query_user_facts(
+            user_id=user_id, hint_text=latest_user_message, top_k=top_k_user_facts
+        )
+        
+        # Also query structured memories for better context
+        try:
+            memory_matches = pinecone_service.query_user_memories(
+                user_id=user_id, query_text=latest_user_message, top_k=5
             )
-        else:
-            skipped_layers.append("pinecone_user_facts")
+            if memory_matches:
+                memory_contexts = [m.get("text", "") for m in memory_matches if m.get("text")]
+                if memory_contexts:
+                    memory_context = "\n---\n".join(memory_contexts)
+                    if pinecone_context:
+                        pinecone_context = f"{pinecone_context}\n\n[Structured Memories]\n{memory_context}"
+                    else:
+                        pinecone_context = f"[Structured Memories]\n{memory_context}"
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Memory query failed: {e}")
+        
+        semantic_time_ms = (time.time() - start_sem) * 1000
+        
+        # Log memory retrieval success
+        if pinecone_context or user_fact_snippets:
+            logger.info(f"Retrieved memory context for user {user_id}: "
+                       f"pinecone={bool(pinecone_context)}, facts={len(user_fact_snippets)}")
+        
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Pinecone query failed: {e}")
         pinecone_context = None
@@ -380,6 +403,7 @@ async def post_message_update_async(
       - Optional session state update
       - Synchronous embedding upsert (CPU / network bound; left sync)
       - Gated background fact extraction scheduling
+      - Enhanced memory storage for long-term persistence
     """
     # a) Append to Redis history & optional state
     try:
@@ -395,7 +419,20 @@ async def post_message_update_async(
     # b) Upsert embeddings (sync call encapsulates its own try/except)
     _upsert_embeddings(user_id, session_id, user_message, ai_message)
 
-    # c) Gate fact extraction
+    # c) Enhanced memory storage for long-term persistence
+    try:
+        # Store important user messages as long-term memories
+        if len(user_message.strip()) > 10:  # Only store meaningful messages
+            await _store_important_memory(user_id, user_message, "user_message")
+        
+        # Store AI responses that contain important information
+        if len(ai_message.strip()) > 20 and any(keyword in ai_message.lower() for keyword in 
+            ["remember", "noted", "saved", "will remember", "i'll remember", "i remember"]):
+            await _store_important_memory(user_id, ai_message, "ai_response")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Enhanced memory storage failed: {e}")
+
+    # d) Gate fact extraction
     try:
         long_message = len(user_message) > 220
         counter = await memory_store.increment_user_message_counter(user_id)
@@ -411,6 +448,36 @@ async def post_message_update_async(
             )
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Gated fact extraction scheduling failed: {e}")
+
+
+async def _store_important_memory(user_id: str, content: str, memory_type: str):
+    """Store important messages as long-term memories in MongoDB and Pinecone."""
+    try:
+        from app.services import memory_service
+        from app.services.pinecone_service import upsert_user_fact_embedding
+        from datetime import datetime
+        
+        # Create memory in MongoDB
+        memory_data = {
+            "user_id": user_id,
+            "title": f"Important {memory_type}",
+            "value": content,
+            "type": "conversation",
+            "priority": "normal",
+            "source_type": "conversation",
+            "lifecycle_state": "active"
+        }
+        
+        memory_doc = await memory_service.create_memory(memory_data)
+        
+        # Also store as user fact embedding in Pinecone
+        timestamp = datetime.utcnow().isoformat()
+        upsert_user_fact_embedding(user_id, content, timestamp, "conversation")
+        
+        logger.info(f"Stored important memory for user {user_id}: {memory_type}")
+        
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to store important memory: {e}")
 
 
 def post_message_update(**kwargs):

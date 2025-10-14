@@ -18,7 +18,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
   const [isSending, setIsSending] = useState(false);
   const [isFetching, setIsFetching] = useState(false); // loading overlay for fetch/new chat
   const [loaderText, setLoaderText] = useState('Fetching your conversation…');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); // retained for future use, not rendered as top banner
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -41,19 +41,35 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
 
   const quote = 'The future belongs to those who believe in the beauty of their dreams.';
 
+  // In-memory cache for session histories to make switching instant
+  const historyCacheRef = useRef(new Map()); // sid -> { messages, ts }
+  const currentLoadAbortRef = useRef(null);
+
   useEffect(() => {
     let cancelled = false;
     const loadHistory = async (sid) => {
-      setError('');
+  setError('');
       setLoaderText('Fetching your conversation…');
       setIsFetching(true);
+      // Abort any previous in-flight history fetch
+      try { currentLoadAbortRef.current?.abort?.(); } catch {}
+      const ac = new AbortController();
+      currentLoadAbortRef.current = ac;
       try {
+        // Serve instantly from cache if present
+        const cached = historyCacheRef.current.get(sid);
+        if (cached && Array.isArray(cached.messages)) {
+          setMessages(cached.messages);
+          setSessionId(sid);
+          // Soft hide loader quickly for a no-glitch effect
+          setTimeout(() => { if (!cancelled) setIsFetching(false); }, 50);
+        }
         // Prefer chatService.getSessionHistory if available on backend; fallback to sessionService.getSessionMessages
         let res;
         try {
-          res = await chatService.getSessionHistory(sid, 100, 0);
+          res = await chatService.getSessionHistory(sid, { limit: 100, offset: 0, signal: ac.signal });
         } catch {
-          res = await sessionService.getSessionMessages(sid);
+          res = await sessionService.getSessionMessages(sid, { limit: 100, offset: 0, signal: ac.signal });
         }
         const data = res?.data;
         // Normalize various possible response shapes
@@ -113,9 +129,24 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
         if (!cancelled) {
           setMessages(normalized);
           setSessionId(sid);
+          // Update cache after successful load
+          historyCacheRef.current.set(sid, { messages: normalized, ts: Date.now() });
         }
       } catch (e) {
-        if (!cancelled) setError(e?.response?.data?.detail || e?.message || 'Failed to load conversation');
+        if (!cancelled) {
+          const msg = e?.response?.data?.detail || e?.message || 'Failed to load conversation';
+          const errMessage = {
+            id: `hist-err-${Date.now()}`,
+            type: 'ai',
+            content: `Could not load this conversation. ${msg}`,
+            isError: true,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            dayKey: new Date().toISOString().slice(0,10),
+            dayLabel: 'Today',
+          };
+          setMessages([errMessage]);
+          setSessionId(sid);
+        }
       } finally {
         if (!cancelled) setIsFetching(false);
       }
@@ -137,7 +168,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
       return () => { cancelled = true; clearTimeout(t); };
     }
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; try { currentLoadAbortRef.current?.abort?.(); } catch {} };
   }, [chatId]);
 
   const scrollToBottom = useCallback((behavior = 'smooth') => {
@@ -147,6 +178,15 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
   useEffect(() => {
     scrollToBottom('smooth');
   }, [messages, scrollToBottom]);
+
+  // Broadcast whether the current chat window has any messages so Sidebar can gate "New Chat"
+  useEffect(() => {
+    const hasContent = Array.isArray(messages) && messages.length > 0;
+    try {
+      localStorage.setItem('maya_chat_has_content', hasContent ? '1' : '0');
+      window.dispatchEvent(new CustomEvent('maya:chat-has-content', { detail: { hasContent } }));
+    } catch {}
+  }, [messages]);
 
   // Show FAB when scrolled up
   useEffect(() => {
@@ -163,7 +203,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
   }, [messages.length]);
 
   const handleSend = async () => {
-    const content = inputValue.trim();
+  const content = inputValue.trim();
     if (!content && attachments.length === 0) return;
 
     // Push user message immediately (optimistic UI)
@@ -180,8 +220,9 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
     setMessages((prev) => [...prev, userMsg]);
     setInputValue('');
     setAttachments([]);
-  thinkingStartRef.current = performance.now();
-  setIsSending(true);
+    const sentId = userMsg.id;
+    thinkingStartRef.current = performance.now();
+    setIsSending(true);
     setError('');
     // keep view anchored
     scrollToBottom('auto');
@@ -189,7 +230,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
     // No client-side auto-embed; wait for backend to respond with a video payload
 
     try {
-      let resp;
+  let resp;
       if (!sessionId) {
         // Start a new backend chat session with the first message
         resp = await chatService.startNewChat(content);
@@ -258,6 +299,8 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
             generationMs: genMs
           };
           setMessages((prev) => [...prev, aiMsg]);
+          // Let sidebar refresh session list (message counts, updatedAt) quickly
+          try { window.dispatchEvent(new CustomEvent('maya:sessions:refresh')); } catch {}
           const v = data?.video;
           if (v && v.videoId) {
             const ytMsg = {
@@ -274,7 +317,21 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
         }
       }
     } catch (e) {
-      setError(e?.response?.data?.detail || e?.message || 'Failed to send message');
+      const msg = e?.response?.data?.detail || e?.message || 'Network error while sending';
+      // Mark last user message as failed and append an inline error bubble
+      setMessages((prev) => {
+        const updated = prev.map((m) => m.id === sentId ? { ...m, status: 'failed' } : m);
+        const errMsg = {
+          id: `err-${Date.now()}`,
+          type: 'ai',
+          content: msg,
+          isError: true,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          dayKey: new Date().toISOString().slice(0,10),
+          dayLabel: 'Today',
+        };
+        return [...updated, errMsg];
+      });
     } finally {
       // Stop the thinking animation (if still running) then hide overlay
       try { thinkingCancelRef.current && thinkingCancelRef.current(); } catch {}
@@ -424,9 +481,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
           </div>
         ) : (
           <>
-            {error && (
-              <div className="chat-error" role="alert">{error}</div>
-            )}
+            {/* top-level banner error removed; errors render inline as message bubbles */}
             {itemsWithDividers.map((item, idx) => item.kind === 'divider' ? (
               <div key={`div-${item.key}-${idx}`} className="date-divider" aria-label={item.label}>
                 <span>{item.label}</span>
@@ -439,11 +494,11 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
                 return (
               <div
                 key={message.id}
-                className={`message ${message.type}`}
+                className={`message ${message.type} ${isUser && message.status === 'failed' ? 'failed' : ''}`}
                 onMouseEnter={() => setHoveredMessage(message.id)}
                 onMouseLeave={() => setHoveredMessage(null)}
               >
-                <div className="message-bubble">
+                <div className={`message-bubble ${isAI && message.isError ? 'error' : ''}`}>
                   {message.attachments && message.attachments.length > 0 && (
                     <div className="message-attachments">
                       {message.attachments.map((att, idx) => (
@@ -634,6 +689,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
               <span className="dot" />
             </div>
             <div className="loader-text">{loaderText}</div>
+            <div className="loader-progress" aria-hidden="true" />
             {/* Optional skeleton rows for visual richness */}
             <div className="skeleton-lines" aria-hidden="true">
               <div className="skeleton-line" style={{ width: '72%' }} />

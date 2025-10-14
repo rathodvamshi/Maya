@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import '../styles/ProfileInterface.css';
 import profileService from '../services/profileService';
 import authService from '../services/auth';
+import userService from '../services/userService';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -56,7 +57,7 @@ const Profile = () => {
     } catch { return {}; }
   });
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileModalValues, setProfileModalValues] = useState({ name: '', role: '' });
+  const [profileModalValues, setProfileModalValues] = useState({ name: '', role: '', hobbies: '' });
   const [profileModalSaving, setProfileModalSaving] = useState(false);
   const [toast, setToast] = useState(null); // { type, text }
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -64,6 +65,8 @@ const Profile = () => {
   const [showApiDeleteModal, setShowApiDeleteModal] = useState(false);
   const [apiDeleteTarget, setApiDeleteTarget] = useState(null);
   const [apiDeleting, setApiDeleting] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const roleOptions = [
     { value: 'student', label: 'Student 🎓' },
@@ -85,28 +88,43 @@ const Profile = () => {
   // ========================
   useEffect(() => {
     const loadProfile = async () => {
-      const result = await profileService.getProfile();
-      if (result.success) {
-        setUser(result.data);
-        setEditValues({
-          name: result.data.name || '',
-          email: result.data.email || '',
-          role: result.data.role || ''
-        });
-      }
+      // Fetch basics from users collection (/auth/me) and profile for extras
+      const [me, profile] = await Promise.all([
+        userService.getMe(),
+        profileService.getProfile(),
+      ]);
+      const meData = me.success ? (me.data || {}) : {};
+      const profData = profile.success ? (profile.data || {}) : {};
+      const merged = {
+        ...profData,
+        user_id: profData.user_id || meData.user_id,
+        name: profData.name || meData.username || '',
+        email: meData.email || profData.email || '',
+        role: meData.role || profData.role || '',
+        hobbies: Array.isArray(meData.hobbies) ? meData.hobbies : (Array.isArray(profData.hobbies) ? profData.hobbies : []),
+        username: meData.username || '',
+      };
+      setUser(merged);
+      setEditValues({
+        name: merged.name || '',
+        email: merged.email || '',
+        role: merged.role || '',
+        hobbies: merged.hobbies || [],
+      });
     };
 
     const loadStats = async () => {
       const result = await profileService.getUserStats();
       if (result.success) {
         const raw = result.data || {};
-        // Normalize naming (backend snake_case → camelCase front end) & derive usageRate
         const normalized = {
           totalChats: raw.total_chats ?? raw.totalChats ?? 0,
           completedTasks: raw.completed_tasks ?? raw.completedTasks ?? 0,
           totalTasks: raw.total_tasks ?? raw.totalTasks ?? 0,
+          totalMessages: raw.total_messages ?? raw.totalMessages ?? 0,
+          totalUserMessages: raw.total_user_messages ?? raw.totalUserMessages ?? 0,
+          usageRate: raw.usage_rate ?? raw.usageRate ?? 0,
         };
-        normalized.usageRate = normalized.totalTasks > 0 ? (normalized.completedTasks / normalized.totalTasks) * 100 : 0;
         setStats(normalized);
       }
     };
@@ -173,7 +191,8 @@ const Profile = () => {
     return String(n);
   };
 
-  const usageRateDisplay = `${Math.round(displayStats.usageRate)}%`;
+  // Display exact percentage from authoritative stats to avoid animation rounding drift
+  const usageRateDisplay = `${Math.round(stats?.usageRate || 0)}%`;
 
   useEffect(() => {
     if (editingField && editInputRefs.current[editingField]) {
@@ -232,8 +251,9 @@ const Profile = () => {
 
   const openProfileModal = () => {
     setProfileModalValues({
-      name: editValues.name || user?.name || '',
-      role: user?.role || 'student'
+      name: (user?.name || user?.username || ''),
+      role: user?.role || 'student',
+      hobbies: (user?.hobbies || []).join(', '),
     });
     setShowProfileModal(true);
   };
@@ -245,8 +265,11 @@ const Profile = () => {
   const handleProfileModalSave = async () => {
     if (!user) return;
     const payload = {};
-    if (profileModalValues.name !== user.name) payload.name = profileModalValues.name;
-    if (profileModalValues.role !== user.role) payload.role = profileModalValues.role;
+    // username is the canonical field in users collection
+    if ((profileModalValues.name || '') !== (user.username || user.name || '')) payload.username = profileModalValues.name || '';
+    if ((profileModalValues.role || '') !== (user.role || '')) payload.role = profileModalValues.role || '';
+    const hobbiesList = (profileModalValues.hobbies || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (JSON.stringify(hobbiesList) !== JSON.stringify(user.hobbies || [])) payload.hobbies = hobbiesList;
     if (Object.keys(payload).length === 0) {
       setToast({ type: 'info', text: 'No changes to save.' });
       autoHideToast();
@@ -254,18 +277,44 @@ const Profile = () => {
       return;
     }
     setProfileModalSaving(true);
-    const result = await profileService.updateProfile(payload);
+    // Persist to users collection via /auth/me
+    const result = await userService.updateMe(payload);
     if (result.success) {
-      setUser(prev => ({ ...prev, ...payload }));
-      setEditValues(prev => ({ ...prev, ...payload }));
-        setToast({ type: 'success', text: 'Updated profile' });
+      const updated = result.data || {};
+      const merged = {
+        ...user,
+        username: updated.username ?? payload.username ?? user.username,
+        name: updated.username ?? payload.username ?? user.name,
+        role: updated.role ?? payload.role ?? user.role,
+        hobbies: updated.hobbies ?? payload.hobbies ?? user.hobbies,
+      };
+      setUser(merged);
+      setEditValues(prev => ({ ...prev, name: merged.name, role: merged.role, hobbies: merged.hobbies }));
+      setToast({ type: 'success', text: 'Updated profile' });
+      // Refresh stats in case role/hobbies affect analytics downstream
+      try {
+        const statsResult = await profileService.getUserStats();
+        if (statsResult.success) {
+          const raw = statsResult.data || {};
+          const normalized = {
+            totalChats: raw.total_chats ?? raw.totalChats ?? 0,
+            completedTasks: raw.completed_tasks ?? raw.completedTasks ?? 0,
+            totalTasks: raw.total_tasks ?? raw.totalTasks ?? 0,
+            totalMessages: raw.total_messages ?? raw.totalMessages ?? 0,
+            totalUserMessages: raw.total_user_messages ?? raw.totalUserMessages ?? 0,
+            usageRate: raw.usage_rate ?? raw.usageRate ?? 0,
+          };
+          setStats(normalized);
+        }
+      } catch {}
       // Sync into authService stored user object for global usage (e.g., navbar)
       try {
         const stored = authService.getCurrentUser() || {};
-        const merged = { ...stored };
-        if (payload.name) merged.name = payload.name;
-        if (payload.role) merged.role = payload.role;
-        localStorage.setItem('user', JSON.stringify(merged));
+        const nextStored = { ...stored };
+        if (merged.name) nextStored.name = merged.name;
+        if (merged.role) nextStored.role = merged.role;
+        if (Array.isArray(merged.hobbies)) nextStored.hobbies = merged.hobbies;
+        localStorage.setItem('user', JSON.stringify(nextStored));
       } catch (e) { /* ignore storage issues */ }
       // Broadcast custom event so other components can react without manual refresh
       try {
@@ -545,7 +594,7 @@ const Profile = () => {
             {globalMessage && (
               <div className={`profile-global-message ${globalMessage.type}`}>{globalMessage.text}</div>
             )}
-            {renderEditableField('name', 'Username', user.name, { editable: false })}
+            {renderEditableField('name', 'Username', user.username || user.name, { editable: false })}
             {renderEditableField('user_id', 'User ID', user.user_id || user._id, { editable: false, readOnly: true })}
             {/* Email purely from auth store if available */}
             <div className="info-item">
@@ -560,13 +609,26 @@ const Profile = () => {
               <User size={20} />
               <div className="info-details">
                 <label>Role</label>
-                <div className="display-row"><p>{roleOptions.find(r => r.value === user.role)?.label || 'Not set'}</p></div>
+                <div className="display-row"><p>{roleOptions.find(r => r.value === user.role)?.label || user.role || 'Not set'}</p></div>
+              </div>
+            </div>
+            {/* Hobbies display */}
+            <div className="info-item">
+              <User size={20} />
+              <div className="info-details">
+                <label>Hobbies</label>
+                <div className="display-row"><p>{(user.hobbies && user.hobbies.length > 0) ? user.hobbies.join(', ') : 'Not set'}</p></div>
               </div>
             </div>
 
             <div className="single-edit-launch dual">
               <button className="btn-primary" onClick={openProfileModal}>Edit Profile</button>
               <button className="btn-primary" onClick={openAddApiModal}><Plus size={16} /> Add API</button>
+            </div>
+            <div className="single-edit-launch">
+              <button className="btn-danger" onClick={() => setShowDeleteAccount(true)}>
+                <Trash2 size={16} /> Delete Account
+              </button>
             </div>
 
             {/* Removed bulk save bar in favor of modal-based editing */}
@@ -611,18 +673,18 @@ const Profile = () => {
         <div className="stats-card live">
           <div className="stats-header-row">
             <h2>Usage Statistics</h2>
-            <button className="stat-refresh-btn" onClick={() => { if(!statsAnimatingRef.current) { lastStatsRef.current = displayStats; } profileService.getUserStats().then(r=>{ if(r.success){ const raw=r.data||{}; const normalized={ totalChats: raw.total_chats??0, completedTasks: raw.completed_tasks??0, totalTasks: raw.total_tasks??0 }; normalized.usageRate = normalized.totalTasks>0 ? (normalized.completedTasks/normalized.totalTasks)*100 : 0; setStats(normalized);} }); }} aria-label="Refresh stats">↻</button>
+            <button className="stat-refresh-btn" onClick={() => { if(!statsAnimatingRef.current) { lastStatsRef.current = displayStats; } profileService.getUserStats().then(r=>{ if(r.success){ const raw=r.data||{}; const normalized={ totalChats: raw.total_chats??0, completedTasks: raw.completed_tasks??0, totalTasks: raw.total_tasks??0, totalMessages: raw.total_messages??0, totalUserMessages: raw.total_user_messages??0, usageRate: raw.usage_rate??0 }; setStats(normalized);} }); }} aria-label="Refresh stats">↻</button>
           </div>
           <div className="stats-grid live">
             <div className="stat-item live">
               <div className="stat-top">
                 <div className="stat-icon gradient-a"><MessageSquare size={20} /></div>
                 <div className="stat-metric">
-                  <span className="stat-value animated" data-label="Total Chats">{formatNumber(displayStats.totalChats)}</span>
+                  <span className="stat-value animated" data-label="Total Chats">{Number(stats.totalChats || 0).toLocaleString()}</span>
                   <span className="stat-label">Total Chats</span>
                 </div>
               </div>
-              <div className="stat-bar-wrapper" aria-label={`Total chats ${displayStats.totalChats}`}> 
+              <div className="stat-bar-wrapper" aria-label={`Total chats ${stats.totalChats || 0}`}> 
                 <div className="stat-bar-bg"><div className="stat-bar-fill" style={{ width: (displayStats.totalChats ? 100 : 0) + '%'}} /></div>
               </div>
             </div>
@@ -630,7 +692,7 @@ const Profile = () => {
               <div className="stat-top">
                 <div className="stat-icon gradient-b"><CheckCircle size={20} /></div>
                 <div className="stat-metric">
-                  <span className="stat-value animated" data-label="Completed Tasks">{formatNumber(displayStats.completedTasks)}</span>
+                  <span className="stat-value animated" data-label="Completed Tasks">{Number(stats.completedTasks || 0).toLocaleString()}</span>
                   <span className="stat-label">Completed Tasks</span>
                 </div>
               </div>
@@ -650,7 +712,7 @@ const Profile = () => {
               <div className="rate-ring" role="img" aria-label={`Usage rate ${usageRateDisplay}`}>
                 <svg viewBox="0 0 36 36" className="ring-svg">
                   <path className="ring-bg" d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32" />
-                  <path className="ring-fg" strokeDasharray={`${Math.max(2, Math.min(100, displayStats.usageRate)).toFixed(1)}, 100`} d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32" />
+                  <path className="ring-fg" strokeDasharray={`${Math.max(0, Math.min(100, (displayStats.usageRate || 0))).toFixed(1)}, 100`} d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32" />
                 </svg>
                 <div className="ring-center">{Math.round(displayStats.usageRate)}%</div>
               </div>
@@ -726,6 +788,15 @@ const Profile = () => {
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
+              </label>
+              <label className="modal-field">
+                <span>Hobbies</span>
+                <input
+                  value={profileModalValues.hobbies}
+                  onChange={e => setProfileModalValues(v => ({ ...v, hobbies: e.target.value }))}
+                  placeholder="e.g. coding, music, football"
+                />
+                <div style={{fontSize:12,color:'#64748b'}}>Comma-separated list</div>
               </label>
             </div>
             <div className="modal-actions">
@@ -817,6 +888,36 @@ const Profile = () => {
             <div className="modal-actions">
               <button className="btn-secondary" disabled={apiDeleting} onClick={()=> setShowApiDeleteModal(false)}>Cancel</button>
               <button className="btn-danger" disabled={apiDeleting} onClick={confirmDeleteApi}>{apiDeleting ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />} Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteAccount && (
+        <div className="modal-overlay" onClick={() => !deletingAccount && setShowDeleteAccount(false)}>
+          <div className="modal-content api-delete-modal" onClick={e=>e.stopPropagation()}>
+            <h3>Delete Your Account</h3>
+            <p className="api-delete-text">
+              This will permanently delete your account and all associated data (chats, tasks, memories, API keys, logs). This action cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button className="btn-secondary" disabled={deletingAccount} onClick={()=> setShowDeleteAccount(false)}>Cancel</button>
+              <button className="btn-danger" disabled={deletingAccount} onClick={async ()=>{
+                setDeletingAccount(true);
+                const res = await userService.deleteMe();
+                if (res.success) {
+                  setToast({ type: 'success', text: 'Account deleted' });
+                  try { authService.logout(); } catch {}
+                  window.location.href = '/';
+                } else {
+                  setToast({ type: 'error', text: res.error || 'Failed to delete account' });
+                }
+                setDeletingAccount(false);
+                setShowDeleteAccount(false);
+                autoHideToast();
+              }}>
+                {deletingAccount ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />} Delete
+              </button>
             </div>
           </div>
         </div>

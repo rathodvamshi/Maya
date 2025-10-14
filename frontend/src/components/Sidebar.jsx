@@ -8,6 +8,9 @@ import {
 import '../styles/Sidebar.css';
 import sessionService from '../services/sessionService';
 import taskService from '../services/taskService';
+import profileService from '../services/profileService';
+import authService from '../services/auth';
+import userService from '../services/userService';
 
 /**
  * Sidebar component with desktop collapse (width shrink) & mobile slide-in behaviors.
@@ -40,6 +43,16 @@ const Sidebar = ({
   const [sessionsError, setSessionsError] = useState('');
   const historyMenuRef = useRef(null);
   const [activeSessionId, setActiveSessionId] = useState(null);
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [chatHasContent, setChatHasContent] = useState(() => {
+    try { return localStorage.getItem('maya_chat_has_content') === '1'; } catch { return false; }
+  });
+  // User profile (name/email/avatar)
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [userInitials, setUserInitials] = useState('');
+  const [userAvatarUrl, setUserAvatarUrl] = useState('');
+  const [avatarError, setAvatarError] = useState(false);
 
   // Tasks state (now fetched from backend; no defaults)
   const [pendingTasks, setPendingTasks] = useState([]);
@@ -98,6 +111,7 @@ const Sidebar = ({
     onSelectChat?.(chatId);
     setActiveSessionId(chatId);
     try { localStorage.setItem(ACTIVE_SESSION_KEY, chatId); } catch {/* ignore */}
+    try { window.dispatchEvent(new CustomEvent('maya:active-session', { detail: { id: chatId } })); } catch {}
     collapseForMobile();
   };
 
@@ -109,45 +123,140 @@ const Sidebar = ({
     collapseForMobile();
   };
 
+  const fetchSessions = useCallback(async () => {
+    setLoadingSessions(true);
+    setSessionsError('');
+    try {
+      const res = await sessionService.getSessions();
+      const raw = res?.data || [];
+      const list = Array.isArray(raw) ? raw : raw.items || [];
+      const normalized = list.map((s) => ({
+        id: s.id || s._id,
+        title: s.title || 'Untitled Chat',
+        saved: false, // will be overridden by local meta
+        pinned: Boolean(s.pinned), // overridden by meta if set
+        messageCount: typeof s.messageCount === 'number' ? s.messageCount : (Array.isArray(s.messages) ? s.messages.length : 0),
+        updatedAt: s.updatedAt || s.updated_at || s.createdAt || s.created_at || null,
+      }));
+      const meta = loadMeta();
+      const withMeta = applyMeta(normalized, meta);
+      setSessions(sortSessions(withMeta));
+    } catch (e) {
+      setSessionsError(e?.message || 'Failed to load sessions');
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchSessions = async () => {
-      setLoadingSessions(true);
-      setSessionsError('');
-      try {
-        const res = await sessionService.getSessions();
-        const raw = res?.data || [];
-        const list = Array.isArray(raw) ? raw : raw.items || [];
-        const normalized = list.map((s) => ({
-          id: s.id || s._id,
-          title: s.title || 'Untitled Chat',
-          saved: false, // will be overridden by local meta
-          pinned: Boolean(s.pinned), // overridden by meta if set
-          messageCount: typeof s.messageCount === 'number' ? s.messageCount : (Array.isArray(s.messages) ? s.messages.length : 0),
-          updatedAt: s.updatedAt || s.updated_at || s.createdAt || s.created_at || null,
-        }));
-        const meta = loadMeta();
-        const withMeta = applyMeta(normalized, meta);
-        setSessions(sortSessions(withMeta));
-      } catch (e) {
-        setSessionsError(e?.message || 'Failed to load sessions');
-      } finally {
-        setLoadingSessions(false);
-      }
-    };
     fetchSessions();
     // restore active session id
     try {
       const stored = localStorage.getItem(ACTIVE_SESSION_KEY);
       if (stored) setActiveSessionId(stored);
     } catch {/* ignore */}
+  }, [fetchSessions]);
+
+  // Load user profile (name, email) for sidebar footer
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Fetch from users collection first (auth /me), then profile details
+        const [me, prof] = await Promise.allSettled([
+          userService.getMe(),
+          profileService.getProfile(),
+        ]);
+        const meOk = me.status === 'fulfilled' && me.value?.success;
+        const profOk = prof.status === 'fulfilled' && prof.value?.success;
+        const meData = meOk ? (me.value.data || {}) : {};
+        const data = profOk ? (prof.value.data || {}) : {};
+        // Prefer backend-provided fields; fallback to auth local storage for email
+  const name = meData.username || data.name || data.full_name || meData.profile?.name || '';
+        let email = data.email || meData.email || '';
+        // Attempt to resolve avatar URL from common fields
+        let avatar = data.avatar_url || data.avatar || data.picture || data.image_url || '';
+        if (!email) {
+          try {
+            const u = authService.getCurrentUser();
+            if (u?.email) email = u.email;
+            if (!avatar) {
+              avatar = u?.avatar_url || u?.avatar || u?.picture || u?.image_url || '';
+            }
+          } catch {}
+        }
+        // Derive name from email if needed
+  const finalName = (name || '').toString().trim() || (email ? email.split('@')[0] : 'User');
+        if (!cancelled) {
+          setUserName(finalName);
+          setUserEmail(email || '');
+          setUserAvatarUrl(typeof avatar === 'string' ? avatar : '');
+          setAvatarError(false);
+          try {
+            const initials = profileService.generateAvatarInitials(finalName);
+            setUserInitials(initials || '?');
+          } catch { setUserInitials(finalName?.[0]?.toUpperCase?.() || '?'); }
+        }
+      } catch {
+        // Fallback to local only
+        try {
+          const u = authService.getCurrentUser();
+          const email = u?.email || '';
+          const name = email ? email.split('@')[0] : 'User';
+          const avatar = u?.avatar_url || u?.avatar || u?.picture || u?.image_url || '';
+          if (!cancelled) {
+            setUserName(name);
+            setUserEmail(email);
+            setUserAvatarUrl(typeof avatar === 'string' ? avatar : '');
+            setAvatarError(false);
+            setUserInitials((name?.[0] || '?').toUpperCase());
+          }
+        } catch {}
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
+
+  // Subscribe to chat content signal to know if New Chat can be created
+  useEffect(() => {
+    const handler = (e) => {
+      const v = !!(e?.detail?.hasContent);
+      setChatHasContent(v);
+      try { localStorage.setItem('maya_chat_has_content', v ? '1' : '0'); } catch {}
+    };
+    try { window.addEventListener('maya:chat-has-content', handler); } catch {}
+    return () => { try { window.removeEventListener('maya:chat-has-content', handler); } catch {} };
+  }, []);
+
+  // Live updates without full page refresh
+  useEffect(() => {
+    const onSessionsRefresh = () => { fetchSessions(); };
+    const onActiveSession = (e) => {
+      const id = e?.detail?.id;
+      if (id) {
+        setActiveSessionId(id);
+        try { localStorage.setItem(ACTIVE_SESSION_KEY, id); } catch {}
+      }
+    };
+    try {
+      window.addEventListener('maya:sessions:refresh', onSessionsRefresh);
+      window.addEventListener('maya:active-session', onActiveSession);
+    } catch {}
+    return () => {
+      try {
+        window.removeEventListener('maya:sessions:refresh', onSessionsRefresh);
+        window.removeEventListener('maya:active-session', onActiveSession);
+      } catch {}
+    };
+  }, [fetchSessions]);
 
   // Fetch tasks for sidebar on mount
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     setTasksError('');
     try {
-      const res = await taskService.getTasks();
+      // Use the new summary endpoint for upcoming tasks
+      const res = await taskService.getUpcomingTasksSummary();
       if (res.success) {
         const raw = Array.isArray(res.data) ? res.data : (res.data?.items || []);
         const normalized = raw.map((t) => ({
@@ -155,6 +264,9 @@ const Sidebar = ({
           title: t.title || t.name || 'Untitled Task',
           completed: t.status ? (t.status === 'done' || t.completed === true) : !!t.completed,
           status: t.status || (t.completed ? 'done' : 'todo'),
+          due_date: t.due_date,
+          priority: t.priority,
+          metadata: t.metadata,
         }));
         const pending = normalized.filter((t) => !t.completed);
         const completed = normalized.filter((t) => t.completed);
@@ -257,6 +369,68 @@ const Sidebar = ({
       try { window.dispatchEvent(new CustomEvent('maya:tasks-updated')); } catch {}
     } catch (e) {
       console.warn('Failed to toggle task complete', e);
+    }
+  };
+
+  const handleTaskOtpVerification = async (task) => {
+    const otp = prompt(`Enter OTP for task: ${task.title}`);
+    if (!otp) return;
+    
+    try {
+      const result = await taskService.verifyOtp(task.id, otp);
+      if (result.success) {
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'success',
+            title: 'OTP Verified',
+            message: 'Task reminder verified successfully!'
+          });
+        }
+        await loadTasks(); // Refresh tasks
+      } else {
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'error',
+            title: 'Invalid OTP',
+            message: result.error || 'Please check your OTP and try again'
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to verify OTP', e);
+    }
+  };
+
+  const handleTaskReschedule = async (task) => {
+    const newDate = prompt(`Enter new date/time for task: ${task.title}\nFormat: YYYY-MM-DD HH:MM`);
+    if (!newDate) return;
+    
+    try {
+      const result = await taskService.rescheduleTask(task.id, {
+        due_date: new Date(newDate).toISOString()
+      });
+      
+      if (result.success) {
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'success',
+            title: 'Task Rescheduled',
+            message: 'Task has been rescheduled successfully!'
+          });
+        }
+        await loadTasks(); // Refresh tasks
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (e) {
+      console.warn('Failed to reschedule task', e);
+      if (window.addNotification) {
+        window.addNotification({
+          type: 'error',
+          title: 'Reschedule Failed',
+          message: e.message || 'Unable to reschedule task. Please try again.'
+        });
+      }
     }
   };
 
@@ -380,24 +554,68 @@ const Sidebar = ({
           </div>
         </div>
         <div className="sidebar-content">
-          <button className="new-chat-btn" onClick={async () => {
-            // Avoid creating empty sessions; if the current active session has no messages, do nothing
-            try {
-              const current = sessions.find(s => s.id === activeSessionId);
-              if (current && (!current.messageCount || current.messageCount === 0)) {
-                // optional toast if available
+          <button
+            className={`new-chat-btn ${creatingNew ? 'loading' : ''}`}
+            disabled={creatingNew}
+            onClick={async () => {
+              if (creatingNew) return;
+              // Guard: only allow creating a new chat if current chat has content
+              if (!chatHasContent) {
                 if (window.addNotification) {
-                  window.addNotification({ type: 'info', title: 'New Chat', message: 'Current chat is empty — type a message to start.' });
+                  window.addNotification({ type: 'info', title: 'New Chat', message: 'Type something first, then start a new chat.' });
                 }
-                collapseForMobile();
                 return;
               }
-            } catch {}
-            onNewChat?.();
-            collapseForMobile();
-          }}>
-            <Plus size={20} />
-            {isOpen && <span>New Chat</span>}
+              setCreatingNew(true);
+              setSessionsError('');
+              try {
+                // Immediate UI: switch ChatWindow into fresh mode
+                onNewChat?.();
+                const res = await sessionService.createEmpty();
+                const data = res?.data || {};
+                const sid = data.id || data.session_id || data._id;
+                const nowIso = new Date().toISOString();
+                if (!sid) throw new Error('Failed to create session');
+                // Build the new session and apply local meta
+                const rawNew = {
+                  id: sid,
+                  title: data.title || 'New Chat',
+                  saved: false,
+                  pinned: false,
+                  messageCount: 0,
+                  updatedAt: nowIso,
+                };
+                const meta = loadMeta();
+                const withMeta = applyMeta([rawNew], meta)[0];
+                setSessions(prev => sortSessions([withMeta, ...prev.filter(s => s.id !== sid)]));
+                // Activate it everywhere
+                setActiveSessionId(sid);
+                onSelectChat?.(sid);
+                try {
+                  localStorage.setItem(ACTIVE_SESSION_KEY, sid);
+                  window.dispatchEvent(new CustomEvent('maya:active-session', { detail: { id: sid } }));
+                  window.dispatchEvent(new CustomEvent('maya:sessions:refresh'));
+                } catch {}
+                // Optionally refresh sessions from backend to get canonical data quickly
+                fetchSessions();
+                collapseForMobile();
+              } catch (e) {
+                const msg = e?.response?.data?.detail || e?.message || 'Unable to create a new chat';
+                setSessionsError(msg);
+                if (window.addNotification) {
+                  window.addNotification({ type: 'error', title: 'New Chat', message: msg });
+                }
+              } finally {
+                setCreatingNew(false);
+              }
+            }}
+          >
+            {creatingNew ? (
+              <span className="btn-loader" aria-hidden="true"><span /><span /><span /></span>
+            ) : (
+              <Plus size={20} />
+            )}
+            {isOpen && <span>{creatingNew ? 'Creating…' : 'New Chat'}</span>}
           </button>
 
           <div className="sidebar-section tasks-section" data-section="tasks">
@@ -452,6 +670,20 @@ const Sidebar = ({
                               <button className="icon-btn tiny" title={task.completed ? 'Mark incomplete' : 'Complete'} aria-label={task.completed ? 'Mark incomplete' : 'Complete task'} onClick={() => handleTaskToggleComplete(task, fromTab)}>
                                 <Check size={14} />
                               </button>
+                              {task.due_date && !task.completed && (
+                                <button className="icon-btn tiny" title="Reschedule" aria-label="Reschedule task" onClick={() => handleTaskReschedule(task)}>
+                                  <Clock size={14} />
+                                </button>
+                              )}
+                              {task.metadata?.otp_verified_at ? (
+                                <button className="icon-btn success tiny" title="OTP Verified" disabled>
+                                  <Check size={14} />
+                                </button>
+                              ) : task.due_date && !task.completed ? (
+                                <button className="icon-btn tiny" title="Verify OTP" aria-label="Verify OTP" onClick={() => handleTaskOtpVerification(task)}>
+                                  <Check size={14} />
+                                </button>
+                              ) : null}
                               <button className="icon-btn danger tiny" title="Delete" aria-label="Delete task" onClick={() => handleTaskDeleteRequest(task, fromTab)}>
                                 <Trash2 size={14} />
                               </button>
@@ -559,11 +791,17 @@ const Sidebar = ({
 
         <div className="sidebar-footer">
           <div className="user-profile" onClick={() => setShowUserMenu(!showUserMenu)}>
-            <div className="user-avatar">JD</div>
+            <div className="user-avatar" aria-label="User avatar">
+              {userAvatarUrl && !avatarError ? (
+                <img src={userAvatarUrl} alt={userName || 'User'} onError={() => setAvatarError(true)} />
+              ) : (
+                userInitials || '?'
+              )}
+            </div>
             {isOpen && (
               <div className="user-info">
-                <div className="user-name">John Doe</div>
-                <div className="user-email">john@example.com</div>
+                <div className="user-name">{userName || 'User'}</div>
+                <div className="user-email">{userEmail || ''}</div>
               </div>
             )}
           </div>

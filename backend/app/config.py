@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     PINECONE_ENVIRONMENT: Optional[str] = None
     PINECONE_ENV: Optional[str] = None
     PINECONE_INDEX: str = "maya2-session-memory"
+    PINECONE_HOST: str = "https://maya-ityq2wh.svc.aped-4627-b74a.pinecone.io"
+    PINECONE_DIMENSIONS: int = 1536
+    PINECONE_METRIC: str = "cosine"
+    PINECONE_CLOUD: str = "aws"
+    PINECONE_REGION: str = "us-east-1"
 
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_API_KEYS: Optional[str] = None
@@ -60,16 +65,19 @@ class Settings(BaseSettings):
     AI_PROVIDER_ORDER: Optional[str] = None  # Comma-separated override order
     PRIMARY_PROVIDER: Optional[str] = None  # e.g., "gemini"
     FALLBACK_PROVIDER: Optional[str] = None  # e.g., "cohere"
+    # Custom ordering specifically for fact extraction task (comma list, e.g., "gemini,cohere,anthropic")
+    FACT_EXTRACT_PROVIDER_ORDER: Optional[str] = None
 
     # 🧠 Neo4j Knowledge Graph
     # ==================================================
-    NEO4J_URI: str
+    NEO4J_URI: str = "neo4j+s://bb2cd868.databases.neo4j.io"
     NEO4J_CONTAINER_URI: Optional[str] = None
     NEO4J_USER: str
     NEO4J_PASSWORD: str
     NEO4J_STARTUP_TIMEOUT_SECS: int = 12
     # Optional: explicit Aura database name (defaults to driver default if not set)
     NEO4J_DATABASE: Optional[str] = None
+    NEO4J_QUERY_API_URL: str = "https://bb2cd868.databases.neo4j.io/db/{databaseName}/query/v2"
 
     # ==================================================
     # ⚡ Redis (Caching / Session)
@@ -118,11 +126,39 @@ class Settings(BaseSettings):
     EMOJI_MAX_TOTAL: int = 6
 
     # ==================================================
+    # 🧠 Memory System Configuration
+    # ==================================================
+    # Memory gating thresholds
+    MEMORY_GATE_ENABLE: bool = True
+    MEMORY_GATE_MIN_SALIENCE: float = 0.85
+    MEMORY_GATE_MIN_TRUST: float = 0.55
+    MEMORY_GATE_MIN_COMPOSITE: float = 0.35
+    MEMORY_GATE_LOG_SKIPPED: bool = True
+    
+    # Memory storage settings
+    MEMORY_STORAGE_ENABLED: bool = True
+    MEMORY_CROSS_SESSION_ENABLED: bool = True
+    MEMORY_AUTO_STORE_THRESHOLD: int = 10  # Minimum message length to auto-store
+    
+    # Advanced emotion settings
+    ADV_EMOTION_ENABLE: bool = False
+    ADV_EMOTION_CONFIDENCE_THRESHOLD: float = 0.7
+    EMOTION_TREND_WINDOW: int = 10
+    EMOTION_ESCALATION_THRESHOLD: int = 3
+
+    # ==================================================
     # 🌐 External APIs
     # ==================================================
     YOUTUBE_API_KEY: Optional[str] = None
     NEWS_API_KEY: Optional[str] = None
     WEATHER_API_KEY: Optional[str] = None
+
+    # ==================================================
+    # 🕒 Timezone / Localization
+    # ==================================================
+    # Default timezone for all user-visible times (e.g., reminders) when not overridden.
+    # IST = Asia/Kolkata
+    DEFAULT_TIMEZONE: str = "Asia/Kolkata"
 
     # ==================================================
     # 🧩 Pydantic Settings

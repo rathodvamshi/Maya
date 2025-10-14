@@ -35,6 +35,14 @@
   border: 8px solid transparent;
   border-top-color: #222;
 }
+/* Flip below when near the top */
+.highlight-popover.below { transform: translate(-50%, 8px); }
+.highlight-popover.below::after {
+  bottom: auto;
+  top: -8px;
+  border-top-color: transparent;
+  border-bottom-color: #222;
+}
 
 /* Palette controls */
 .palette-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.25); }
@@ -63,3 +71,23 @@
 .hl-del { background: #3a3a3a; color: #fff; border: none; border-radius: 6px; padding: 6px; cursor: pointer; }
 .hl-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
 .hl-actions button { background: #333; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+
+/* Subtle saved hint */
+.hl-saved-hint {
+  position: fixed;
+  z-index: 10020;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(25, 118, 210, 0.12);
+  color: #1976d2;
+  border: 1px solid rgba(25,118,210,0.25);
+  border-radius: 999px;
+  padding: 4px 8px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+  transform: translate(-100%, 0) scale(0.98);
+  animation: hint-pop .22s ease forwards;
+}
+.hl-saved-hint .tick { font-size: 14px; }
+.hl-saved-hint .text { font-size: 12px; font-weight: 600; letter-spacing: 0.2px; }
+@keyframes hint-pop { to { transform: translate(-100%, 0) scale(1); } }

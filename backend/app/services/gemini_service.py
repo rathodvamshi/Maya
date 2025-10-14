@@ -32,12 +32,26 @@ def generate(prompt: str) -> str:
                 raise RuntimeError(f"All Gemini API keys failed. Last error: {e}")
 
 def create_embedding(text: str) -> list[float]:
-    """Creates an embedding using Google's text-embedding-004 model."""
-    # Note: Key rotation is not applied here for simplicity, but could be added.
-    genai.configure(api_key=gemini_keys[0])
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=text,
-        task_type="retrieval_document"
-    )
-    return result['embedding']
+    """Creates an embedding using Google's text-embedding-004 model with key rotation."""
+    if not gemini_keys:
+        raise ConnectionError("Gemini API keys are not configured.")
+    
+    # Apply key rotation for embeddings too
+    global current_gemini_key_index
+    start_index = current_gemini_key_index
+    
+    while True:
+        try:
+            key_to_try = gemini_keys[current_gemini_key_index]
+            genai.configure(api_key=key_to_try)
+            result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=text,
+                task_type="retrieval_document"
+            )
+            return result['embedding']
+        except Exception as e:
+            print(f"⚠️ Gemini embedding key at index {current_gemini_key_index} failed: {e}")
+            current_gemini_key_index = (current_gemini_key_index + 1) % len(gemini_keys)
+            if current_gemini_key_index == start_index:
+                raise RuntimeError(f"All Gemini API keys failed for embeddings. Last error: {e}")

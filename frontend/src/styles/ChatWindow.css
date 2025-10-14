@@ -144,6 +144,12 @@
   border: 1px solid rgba(0,0,0,0.06);
   background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(250,250,250,0.9));
   box-shadow: 0 12px 30px -10px rgba(0,0,0,0.22);
+  transform: translateY(6px) scale(.98);
+  animation: popIn .28s ease forwards;
+}
+
+@keyframes popIn {
+  to { transform: translateY(0) scale(1); }
 }
 
 .typing-dots { display: inline-flex; align-items: center; gap: 6px; height: 18px; }
@@ -177,6 +183,25 @@
 @keyframes shimmer {
   100% { transform: translateX(100%); }
 }
+
+/* Subtle progress bar under the dots */
+.loader-progress {
+  position: relative;
+  width: 240px;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.06);
+}
+.loader-progress::before {
+  content: "";
+  position: absolute; left: -40%; top: 0; bottom: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg,#1976d2,#4caf50);
+  animation: slideBar 1.2s ease-in-out infinite;
+}
+@keyframes slideBar { 0% { left: -40%; } 50% { left: 30%; } 100% { left: 100%; } }
 
 @media (prefers-color-scheme: dark) {
   .chat-loading-overlay { background: linear-gradient(135deg, rgba(10,10,10,0.74), rgba(18,18,18,0.72)); }
@@ -314,6 +339,26 @@
 
 .message.user .message-bubble:hover {
   box-shadow: 0 4px 20px rgba(25, 118, 210, 0.3);
+}
+
+/* Inline error bubble (AI type with isError) */
+.message.ai .message-bubble.error {
+  background: #ffebee;
+  color: #b71c1c;
+  border-left: 4px solid #e53935;
+}
+.message.ai .message-bubble.error::before {
+  content: "⚠️";
+  margin-right: 8px;
+}
+
+/* Failed user message status indicator */
+.message.user.failed .message-bubble {
+  background: #fff3e0;
+  border-left: 4px solid #fb8c00;
+}
+.message.user.failed .message-timestamp {
+  color: #d84315;
 }
 
 .message-content {
@@ -470,6 +515,12 @@
 .message .message-corner-icons.outer {
   top: 6px;
   left: 6px;
+}
+
+/* Responsive tweaks: make the pinned icons slightly larger on small screens for easier tapping */
+@media (max-width: 768px) {
+  .mini-pinned, .hl-pinned { width: 22px; height: 22px; border-radius: 8px; }
+  .mini-pinned svg, .hl-pinned svg { width: 16px; height: 16px; }
 }
 
 /* Align under right edge for user messages */

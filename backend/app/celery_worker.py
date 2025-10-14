@@ -26,6 +26,7 @@ from app.services.neo4j_service import neo4j_sync_service
 from app.services.redis_service import redis_client as _redis_client
 from app.services.pinecone_service import upsert_memory_embedding
 from app.utils import email_utils
+from app.utils.time_utils import format_ist
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -109,6 +110,7 @@ def reminder_sweep(window_seconds: int = 60):
     try:
         db = db_client
         if not db.healthy():
+            logger.info("[Reminders] Skip sweep - DB unhealthy")
             return
 
         tasks = db.get_tasks_collection()
@@ -122,8 +124,13 @@ def reminder_sweep(window_seconds: int = 60):
             "status": {"$in": ["todo", "pending"]},
         }
 
+        scanned = 0
+        dispatched = 0
+        emailed = 0
+        skipped_recent = 0
         for t in tasks.find(query).limit(200):
             try:
+                scanned += 1
                 user_id = t.get("user_id")
                 title = t.get("title", "Reminder")
                 notes = t.get("description")
@@ -135,6 +142,7 @@ def reminder_sweep(window_seconds: int = 60):
                     except Exception:
                         last_sent = None
                 if last_sent and (now - last_sent).total_seconds() < window_seconds:
+                    skipped_recent += 1
                     continue
 
                 # Create notification in DB
@@ -161,17 +169,7 @@ def reminder_sweep(window_seconds: int = 60):
                         if to_email:
                             due_dt = t.get("due_date")
                             pretty_time = str(due_dt)
-                            try:
-                                aware = due_dt.replace(tzinfo=datetime.timezone.utc) if due_dt and due_dt.tzinfo is None else due_dt
-                                tzname = profile.get("timezone") or "UTC"
-                                try:
-                                    from zoneinfo import ZoneInfo
-                                    local_dt = aware.astimezone(ZoneInfo(tzname)) if aware else None
-                                    pretty_time = local_dt.strftime("%Y-%m-%d %H:%M %Z") if local_dt else str(due_dt)
-                                except Exception:
-                                    pretty_time = aware.strftime("%Y-%m-%d %H:%M UTC") if aware else str(due_dt)
-                            except Exception:
-                                pass
+                            pretty_time = format_ist(due_dt)
 
                             subject = f"Reminder: {title}"
                             body = (
@@ -196,13 +194,20 @@ def reminder_sweep(window_seconds: int = 60):
                             """
                             # Async send email via Celery
                             send_email_task.delay(to_email, subject, body, html_body)
+                            emailed += 1
+                            logger.info(f"[Reminders] Email queued task_id={t.get('_id')} user_id={user_id} to={to_email} title='{title}'")
                     except Exception:
                         pass
 
                 # Update task sent info
                 tasks.update_one({"_id": t.get("_id")}, {"$set": {"last_sent_at": now}, "$inc": {"sent_count": 1}})
+                dispatched += 1
             except Exception:
                 continue
+        if scanned:
+            logger.info(f"[Reminders] Sweep complete scanned={scanned} dispatched={dispatched} emailed={emailed} skipped_recent={skipped_recent} window={window_seconds}s")
+        else:
+            logger.info("[Reminders] Sweep complete - no due tasks found")
     except Exception as e:
         logger.exception(f"Reminder sweep failed: {e}")
 
@@ -210,12 +215,92 @@ def reminder_sweep(window_seconds: int = 60):
 # --- Celery Email Tasks ---
 @shared_task(name="send_email_task", autoretry_for=(email_utils.EmailSendError,), retry_kwargs={"max_retries":3, "countdown":10})
 def send_email_task(recipient: str, subject: str, body: str, html: str = None):
-    email_utils.send_email(recipient, subject, body, html)
+    import uuid, time
+    trace_id = str(uuid.uuid4())[:8]
+    start = time.time()
+    logger.info(f"[EmailTask] trace={trace_id} dispatch recipient={recipient} subject='{subject}'")
+    try:
+        email_utils.send_email(recipient, subject, body, html)
+        dur = int((time.time() - start) * 1000)
+        logger.info(f"[EmailTask] trace={trace_id} success ms={dur}")
+    except Exception as e:
+        dur = int((time.time() - start) * 1000)
+        logger.warning(f"[EmailTask] trace={trace_id} failure ms={dur} error={e}")
+        raise
 
 
 @shared_task(name="send_otp_email_task", autoretry_for=(email_utils.EmailSendError,), retry_kwargs={"max_retries":3, "countdown":5})
 def send_otp_email_task(to_email: str, otp_code: str):
     email_utils.send_otp_email(to_email, otp_code)
+
+
+# --- Task Reminder OTP ---
+@celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+def send_task_otp_task(self, task_id: str, user_email: str, title: str, otp: str = None):
+    """
+    Complete Celery job: send_task_otp_task with logging + OTP + auto-complete as specified.
+    """
+    import random
+    from app.utils.email_utils import send_html_email
+    from app.database import db_client
+    from app.services.redis_service import get_client as get_redis_client
+    
+    # 1) defensive fetch task
+    coll = db_client.get_tasks_collection()
+    task = coll.find_one({"_id": ObjectId(task_id)})
+    if not task:
+        logger.error(f"[OTP_ERROR] Task not found {task_id}")
+        return
+
+    # Check if task already deleted or status not TODO
+    if task.get("status") in ("done", "cancelled"):
+        logger.info(f"[OTP_SKIP] Task {task_id} status {task['status']} - skipping email.")
+        return
+
+    # 2) generate OTP if not provided
+    otp_val = otp or f"{random.randint(100000, 999999):06d}"
+
+    # 3) store OTP in Redis for 600s
+    redis_key = f"otp:task:{task_id}"
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_until_complete(redis_client.setex(redis_key, 600, otp_val))
+            except RuntimeError:
+                # No running loop, create new one
+                asyncio.run(redis_client.setex(redis_key, 600, otp_val))
+    except Exception as e:
+        logger.error(f"[OTP_ERROR] Redis SETEX failed for {redis_key}: {e}")
+        # still try to send email (optional), but log failure
+
+    # 4) prepare email using template
+    subject = f"Reminder: {title} (OTP inside)"
+    from app.templates.email_templates import render_template
+    html_body = render_template("task_otp_email.html", title=title, otp=otp_val, user_email=user_email)
+    text_body = f"Your OTP for '{title}' is {otp_val}. Valid 10 minutes."
+
+    # 5) send email
+    try:
+        ist_str = format_ist(datetime.utcnow())
+        logger.info(f"[OTP_SENDING] Task={task_id}, To={user_email}, OTPKey={redis_key}, TimeUTC={datetime.utcnow().isoformat()} TimeIST={ist_str}")
+        send_html_email(to=[user_email], subject=subject, html=html_body, text=text_body)
+        logger.info(f"[OTP_DISPATCH] Task={task_id}, Email={user_email}, RedisTTL=600s")
+    except Exception as exc:
+        logger.exception(f"[OTP_ERROR] sending email for task {task_id}: {exc}")
+        raise self.retry(exc=exc)  # will retry with backoff
+
+    # 6) auto-complete AFTER successful send
+    if task.get("auto_complete_after_email", True):
+        coll.update_one(
+            {"_id": ObjectId(task_id)},
+            {"$set": {"status": "done", "completed_at": datetime.utcnow(), "updated_at": datetime.utcnow()}}
+        )
+        logger.info(f"[TASK_AUTO_COMPLETE] Task={task_id} marked done after email.")
+
+    # done
 
 
 # --- Memory Salience Update ---

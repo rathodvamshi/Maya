@@ -53,7 +53,12 @@ const TasksInterface = () => {
   const [sortBy, setSortBy] = useState('created');
   const [sortOrder, setSortOrder] = useState('desc');
   const [expandedGroups, setExpandedGroups] = useState(new Set(['today', 'thisWeek', 'later']));
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpTask, setOtpTask] = useState(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleTask, setRescheduleTask] = useState(null);
+  const [newDueDate, setNewDueDate] = useState('');
 
   // ========================
   // Effects
@@ -357,6 +362,96 @@ const TasksInterface = () => {
     }
   };
 
+  const handleOtpVerification = async (taskId) => {
+    const task = tasks.find(t => t._id === taskId);
+    if (!task) return;
+    
+    setOtpTask(task);
+    setShowOtpModal(true);
+  };
+
+  const verifyOtp = async () => {
+    if (!otpCode.trim() || !otpTask) return;
+
+    try {
+      const result = await taskService.verifyOtp(otpTask._id, otpCode);
+      if (result.success) {
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'success',
+            title: 'OTP Verified',
+            message: 'Task reminder verified successfully!'
+          });
+        }
+        setShowOtpModal(false);
+        setOtpCode('');
+        setOtpTask(null);
+        await loadTasks(); // Refresh tasks
+      } else {
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'error',
+            title: 'Invalid OTP',
+            message: result.error || 'Please check your OTP and try again'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error verifying OTP:', error);
+      if (window.addNotification) {
+        window.addNotification({
+          type: 'error',
+          title: 'Verification Failed',
+          message: 'Unable to verify OTP. Please try again.'
+        });
+      }
+    }
+  };
+
+  const handleReschedule = async (taskId) => {
+    const task = tasks.find(t => t._id === taskId);
+    if (!task) return;
+    
+    setRescheduleTask(task);
+    setNewDueDate(task.due_date ? new Date(task.due_date).toISOString().slice(0, 16) : '');
+    setShowRescheduleModal(true);
+  };
+
+  const rescheduleTaskConfirm = async () => {
+    if (!newDueDate || !rescheduleTask) return;
+
+    try {
+      const result = await taskService.rescheduleTask(rescheduleTask._id, {
+        due_date: new Date(newDueDate).toISOString()
+      });
+      
+      if (result.success) {
+        if (window.addNotification) {
+          window.addNotification({
+            type: 'success',
+            title: 'Task Rescheduled',
+            message: 'Task has been rescheduled successfully!'
+          });
+        }
+        setShowRescheduleModal(false);
+        setNewDueDate('');
+        setRescheduleTask(null);
+        await loadTasks(); // Refresh tasks
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      console.error('Error rescheduling task:', error);
+      if (window.addNotification) {
+        window.addNotification({
+          type: 'error',
+          title: 'Reschedule Failed',
+          message: error.message || 'Unable to reschedule task. Please try again.'
+        });
+      }
+    }
+  };
+
   const handleBulkAction = async (action) => {
     const taskIds = Array.from(selectedTasks);
     
@@ -532,6 +627,14 @@ const TasksInterface = () => {
             <Edit3 size={16} />
           </button>
 
+          <button
+            className="task-action-button"
+            onClick={() => handleReschedule(task._id)}
+            title="Reschedule task"
+          >
+            <Calendar size={16} />
+          </button>
+
           <div className="task-snooze-dropdown">
             <button className="task-action-button" title="Snooze task">
               <Clock size={16} />
@@ -542,6 +645,24 @@ const TasksInterface = () => {
               <button onClick={() => handleTaskSnooze(task._id, '1w')}>1 Week</button>
             </div>
           </div>
+
+          {task.metadata?.otp_verified_at ? (
+            <button
+              className="task-action-button success"
+              title="OTP Verified"
+              disabled
+            >
+              <CheckCircle2 size={16} />
+            </button>
+          ) : (
+            <button
+              className="task-action-button"
+              onClick={() => handleOtpVerification(task._id)}
+              title="Verify OTP"
+            >
+              <Check size={16} />
+            </button>
+          )}
 
           <button
             className="task-action-button danger"
@@ -902,6 +1023,83 @@ const TasksInterface = () => {
           </div>
         )}
       </div>
+
+      {/* OTP Verification Modal */}
+      <AnimatePresence>
+        {showOtpModal && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowOtpModal(false)}
+          >
+            <motion.div
+              className="modal-content"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3>Verify Task Reminder</h3>
+              <p>Please enter the OTP you received for: <strong>{otpTask?.title}</strong></p>
+              <input
+                type="text"
+                placeholder="Enter 6-digit OTP"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                maxLength={6}
+                autoFocus
+              />
+              <div className="modal-actions">
+                <button onClick={verifyOtp} disabled={!otpCode.trim()}>
+                  Verify
+                </button>
+                <button onClick={() => setShowOtpModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reschedule Modal */}
+      <AnimatePresence>
+        {showRescheduleModal && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowRescheduleModal(false)}
+          >
+            <motion.div
+              className="modal-content"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3>Reschedule Task</h3>
+              <p>Reschedule: <strong>{rescheduleTask?.title}</strong></p>
+              <input
+                type="datetime-local"
+                value={newDueDate}
+                onChange={(e) => setNewDueDate(e.target.value)}
+              />
+              <div className="modal-actions">
+                <button onClick={rescheduleTaskConfirm} disabled={!newDueDate}>
+                  Reschedule
+                </button>
+                <button onClick={() => setShowRescheduleModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

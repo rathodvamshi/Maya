@@ -35,6 +35,16 @@ const ChatLayout = ({ onNavigate, onLogout, initialChatId }) => {
     } catch {}
   }, [activeChatId]);
 
+  // Stay in sync with global active-session changes without reload
+  useEffect(() => {
+    const onActive = (e) => {
+      const id = e?.detail?.id;
+      if (id && id !== activeChatId) setActiveChatId(id);
+    };
+    try { window.addEventListener('maya:active-session', onActive); } catch {}
+    return () => { try { window.removeEventListener('maya:active-session', onActive); } catch {} };
+  }, [activeChatId]);
+
   const handleNewChat = () => setActiveChatId('');
 
   const chatAreaClass = isMobile
@@ -49,7 +59,7 @@ const ChatLayout = ({ onNavigate, onLogout, initialChatId }) => {
         mobile={isMobile}
         onRequestClose={() => setSidebarOpen(false)}
         onNewChat={handleNewChat}
-  onSelectChat={id => setActiveChatId(id)}
+        onSelectChat={id => setActiveChatId(id)}
         onNavigate={onNavigate}
         onLogout={onLogout}
       />

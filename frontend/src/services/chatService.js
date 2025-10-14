@@ -151,11 +151,13 @@ const chatService = {
   getSessionHistory(sessionId, limitOrOptions = 30, offset = 0) {
     // Support both (id, limit, offset) and (id, { limit, offset, before })
     let limit = 30;
+    let signal = undefined;
     if (typeof limitOrOptions === 'number') {
       limit = limitOrOptions;
     } else if (limitOrOptions && typeof limitOrOptions === 'object') {
       if (typeof limitOrOptions.limit === 'number') limit = limitOrOptions.limit;
       if (typeof limitOrOptions.offset === 'number') offset = limitOrOptions.offset;
+      if (limitOrOptions.signal) signal = limitOrOptions.signal;
       // 'before' is not supported server-side; could be mapped in future
     }
 
@@ -166,7 +168,8 @@ const chatService = {
     const queryString = params.toString();
     const url = `/sessions/${sessionId}/history${queryString ? `?${queryString}` : ''}`;
 
-    return apiClient.get(url);
+    // Pass AbortController signal to enable cancellation
+    return apiClient.get(url, signal ? { signal } : undefined);
   },
 
   /**

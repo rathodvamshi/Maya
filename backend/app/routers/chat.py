@@ -18,11 +18,12 @@ import logging
 # -----------------------------
 from app.celery_app import celery_app
 from app.security import get_current_active_user
-from app.services import ai_service, redis_service
+from app.services import task_nlp, task_flow_service
 from app.services.neo4j_service import neo4j_service
 from app.services.memory_coordinator import gather_memory_context, post_message_update
 from app.services import deterministic_extractor, profile_service
 from app.services import nlu
+from app.services.ai_service import get_response as ai_get_response
 import re
 import httpx
 import os
@@ -920,26 +921,38 @@ async def handle_chat_message(
                 pass
     except Exception:
         pass
-    # 1. Intent Detection for Reminders
-    reminder_result = await _maybe_create_and_schedule_reminder(
-        message, current_user, tasks_collection, {}
-    )
-
-    if reminder_result and reminder_result.get("created"):
-        # Format a confirmation message for the user
-        title = reminder_result["title"]
-        eta_utc = reminder_result["eta_utc"]
-        # In a real app, you'd get user's timezone from their profile
-        user_tz = "UTC" 
-        friendly_time = _format_eta_for_user(eta_utc, user_tz)
-        
-        confirmation_message = f"✅ Reminder set: \"{title}\" at {friendly_time}."
-        
-        # Log and return confirmation
-        await log_message(session_id, "user", message, chat_log_collection)
-        await log_message(session_id, "assistant", confirmation_message, chat_log_collection)
-        
-        return confirmation_message
+    # 1. Intent Detection for Reminders with confirmation flow
+    if task_nlp.detect_task_intent(message):
+        try:
+            # Get user timezone from profile
+            profile = context.get("profile") or {}
+            user_tz = profile.get("timezone") if isinstance(profile, dict) else None
+            
+            # Handle task intent with Redis-backed confirmation flow
+            flow_result = await task_flow_service.handle_task_intent(message, user_id, user_tz)
+            
+            if flow_result.get("action") == "created":
+                # Task was created successfully
+                task_data = flow_result.get("task_data", {})
+                confirmation_message = flow_result["message"]
+                
+                # Log the creation
+                await log_message(session_id, "user", message, chat_log_collection)
+                await log_message(session_id, "assistant", confirmation_message, chat_log_collection)
+                
+                return confirmation_message
+            elif flow_result.get("needs_response"):
+                # Need clarification or confirmation
+                clarification_message = flow_result["message"]
+                
+                # Log the clarification request
+                await log_message(session_id, "user", message, chat_log_collection)
+                await log_message(session_id, "assistant", clarification_message, chat_log_collection)
+                
+                return clarification_message
+        except Exception as e:
+            logger.exception(f"Task flow handling failed: {e}")
+            # Fall through to general conversation
 
     # 2. Fallback to General Conversation
     # (The existing logic for handling general chat would go here)
@@ -971,7 +984,7 @@ async def handle_chat_message(
 
     # Generate assistant response with a resilient fallback to avoid surfacing 500s
     try:
-        ai_response_text = await ai_service.get_response(
+        ai_response_text = await ai_get_response(
             prompt=message,
             history=context.get("history"),
             state=context.get("state", "general_conversation"),
@@ -1376,7 +1389,7 @@ async def start_new_chat_stream(
     )
 
     # Generate AI response in background thread
-    ai_response_text = await ai_service.get_response(
+    ai_response_text = await ai_get_response(
         prompt=request.message,
         history=context.get("history"),
         state=context.get("state", "general_conversation"),
@@ -1578,7 +1591,7 @@ async def continue_chat(
 
     if fast_answer is None:
         # Fall back to full model call
-        ai_response_text = await ai_service.get_response(
+        ai_response_text = await ai_get_response(
             prompt=request.message,
             history=recent_history,
             state=current_state,
@@ -1739,7 +1752,7 @@ async def continue_chat_stream(
         pinecone_context = f"{pinecone_context}\n{prefetched_context}"
 
     ai_response_text = await run_in_threadpool(
-        ai_service.get_response,
+        ai_get_response,
         prompt=request.message,
         history=recent_history,
         state=current_state,

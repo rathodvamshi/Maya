@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 class Neo4jService:
     _driver: Optional[AsyncDriver] = None
     _database: Optional[str] = None
+    _disabled: bool = False
 
     async def connect(self, retries: Optional[int] = None):
         """Attempt to establish async driver with retry/backoff.
@@ -79,9 +80,13 @@ class Neo4jService:
                         break
         # Exhausted retries
         if last_err:
-            logger.error(f"❌ Neo4j async connect failed after {retries} attempts: {last_err}")
+            logger.warning(f"⚠️ Neo4j async connect failed after {retries} attempts: {last_err}")
+            logger.warning("⚠️ Neo4j functionality will be disabled for this session")
+            self._disabled = True
         else:
-            logger.error("❌ Neo4j async connect failed: unknown error")
+            logger.warning("⚠️ Neo4j async connect failed: unknown error")
+            logger.warning("⚠️ Neo4j functionality will be disabled for this session")
+            self._disabled = True
 
     async def close(self):
         if self._driver:
@@ -89,8 +94,9 @@ class Neo4jService:
             self._driver = None
 
     async def run_query(self, query: str, parameters: Optional[Dict] = None) -> Optional[List[Dict]]:
+        if self._disabled:
+            return None
         if not self._driver:
-            logger.error("Neo4j driver not available.")
             return None
         try:
             async with self._driver.session(database=self._database) as session:
@@ -101,17 +107,21 @@ class Neo4jService:
             return None
 
     async def create_user_node(self, user_id: str):
+        if self._disabled:
+            return
         if not self._driver:
             await self.connect()
-        if not self._driver:
+        if not self._driver or self._disabled:
             return
         query = "MERGE (u:User {id: $user_id}) SET u.name = coalesce(u.name, $name)"
         await self.run_query(query, {"user_id": user_id, "name": f"User_{user_id}"})
 
     async def get_user_facts(self, user_id: str) -> str:
+        if self._disabled:
+            return ""
         if not self._driver:
             await self.connect()
-        if not self._driver:
+        if not self._driver or self._disabled:
             return ""
         # Relationship-based facts
         rel_query = (

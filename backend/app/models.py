@@ -158,10 +158,12 @@ class UserProfile(BaseModel):
 class UserStats(BaseModel):
     total_chats: int = 0
     total_messages: int = 0
+    total_user_messages: int = 0
     total_tasks: int = 0
     completed_tasks: int = 0
     active_sessions: int = 0
     avg_session_length: float = 0.0
+    usage_rate: float = 0.0
 
 
 class UserUpdateProfile(BaseModel):
@@ -263,6 +265,7 @@ class TaskCreate(BaseModel):
     tags: List[str] = Field(default_factory=list)
     recurrence: Optional[TaskRecurrence] = TaskRecurrence.NONE
     notify_channel: NotifyChannel = NotifyChannel.EMAIL
+    auto_complete_after_email: bool = True
     allow_past: bool = False
 
     @validator("timezone")
@@ -287,6 +290,7 @@ class TaskUpdate(BaseModel):
     tags: Optional[List[str]] = None
     recurrence: Optional[TaskRecurrence] = None
     notify_channel: Optional[NotifyChannel] = None
+    auto_complete_after_email: Optional[bool] = None
     allow_past: Optional[bool] = False
 
     @validator("tags", pre=True)
@@ -313,6 +317,7 @@ class Task(BaseModel):
     # Additional operational fields used by the scheduler/worker
     notify_channel: NotifyChannel = NotifyChannel.EMAIL
     celery_task_id: Optional[str] = None
+    auto_complete_after_email: bool = True  # Default to True for desired behavior
     metadata: Optional[Dict[str, Any]] = None
 
     class Config:

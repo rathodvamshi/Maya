@@ -185,61 +185,93 @@ async def get_user_stats(
     tasks_collection: Collection = Depends(get_tasks_collection),
     sessions_collection: Collection = Depends(get_sessions_collection)
 ):
-    """Get user statistics."""
-    
-    user_id = current_user["user_id"]
-    
-    # Get task stats
+    """Get user statistics.
+
+    Definitions aligned to product requirements:
+    - Total Chats: number of chat sessions created by the user
+    - Completed Tasks: number of tasks with status == "done"
+    - Usage Rate: percentage of days used in past 30 days (i.e., days with any message)
+    - Total User Messages: count of messages sent by the user across all sessions
+    """
+
+    # Robust user id (some places store ObjectId, others string)
+    user_id = current_user.get("_id") or current_user.get("user_id") or current_user.get("userId")
+    user_match_variants = []
+    if user_id is not None:
+        user_match_variants.append({"userId": user_id})
+        try:
+            if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+                user_match_variants.append({"userId": ObjectId(user_id)})
+        except Exception:
+            pass
+
+    # Task stats (by user_id string)
+    task_user_id = current_user.get("user_id") or (str(user_id) if user_id else None)
     task_stats = tasks_collection.aggregate([
-        {"$match": {"user_id": user_id}},
-        {
-            "$group": {
-                "_id": None,
-                "total_tasks": {"$sum": 1},
-                "completed_tasks": {"$sum": {"$cond": [{"$eq": ["$status", "done"]}, 1, 0]}}
-            }
-        }
+        {"$match": {"user_id": task_user_id}},
+        {"$group": {"_id": None, "total_tasks": {"$sum": 1}, "completed_tasks": {"$sum": {"$cond": [{"$eq": ["$status", "done"]}, 1, 0]}}}},
     ])
-    
     task_result = list(task_stats)
     total_tasks = task_result[0]["total_tasks"] if task_result else 0
     completed_tasks = task_result[0]["completed_tasks"] if task_result else 0
-    
-    # Get session stats
+
+    # Session stats (match any userId variant)
+    session_match = ({"$or": user_match_variants} if user_match_variants else {})
     session_stats = sessions_collection.aggregate([
-        {"$match": {"userId": user_id}},  # Note: sessions use userId not user_id
-        {
-            "$group": {
-                "_id": None,
-                "total_chats": {"$sum": 1},
-                "total_messages": {"$sum": {"$size": "$messages"}},
-                "active_sessions": {
-                    "$sum": {
-                        "$cond": [
-                            {"$eq": ["$isArchived", False]},
-                            1, 0
-                        ]
-                    }
-                }
-            }
-        }
+        {"$match": session_match},
+        {"$group": {
+            "_id": None,
+            "total_chats": {"$sum": 1},
+            "total_messages": {"$sum": {"$size": {"$ifNull": ["$messages", []]}}},
+            "active_sessions": {"$sum": {"$cond": [{"$eq": ["$isArchived", False]}, 1, 0]}},
+        }}
     ])
-    
     session_result = list(session_stats)
     total_chats = session_result[0]["total_chats"] if session_result else 0
     total_messages = session_result[0]["total_messages"] if session_result else 0
     active_sessions = session_result[0]["active_sessions"] if session_result else 0
-    
-    # Calculate average session length (messages per session)
+
+    # Total user messages: sum of messages where sender == "user"
+    user_msg_pipeline = [
+        {"$match": session_match},
+        {"$project": {"msgs": {"$ifNull": ["$messages", []]}}},
+        {"$unwind": {"path": "$msgs", "preserveNullAndEmptyArrays": True}},
+        {"$match": {"msgs.sender": "user"}},
+        {"$group": {"_id": None, "total_user_messages": {"$sum": 1}}},
+    ]
+    user_msg_result = list(sessions_collection.aggregate(user_msg_pipeline))
+    total_user_messages = user_msg_result[0]["total_user_messages"] if user_msg_result else 0
+
+    # Usage rate: active days (with any message) over last 30 days
+    try:
+        since = datetime.utcnow() - timedelta(days=30)
+        active_days_pipeline = [
+            {"$match": session_match},
+            {"$project": {"msgs": {"$ifNull": ["$messages", []]}}},
+            {"$unwind": {"path": "$msgs", "preserveNullAndEmptyArrays": True}},
+            {"$match": {"msgs.timestamp": {"$gte": since}}},
+            {"$project": {"day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$msgs.timestamp"}}}},
+            {"$group": {"_id": "$day"}},
+            {"$count": "active_days"},
+        ]
+        active_days_result = list(sessions_collection.aggregate(active_days_pipeline))
+        active_days = active_days_result[0]["active_days"] if active_days_result else 0
+        usage_rate = (active_days / 30.0) * 100.0
+    except Exception:
+        usage_rate = 0.0
+
+    # Average session length in messages
     avg_session_length = total_messages / total_chats if total_chats > 0 else 0
-    
+
     return UserStats(
         total_chats=total_chats,
         total_messages=total_messages,
+        total_user_messages=total_user_messages,
         total_tasks=total_tasks,
         completed_tasks=completed_tasks,
         active_sessions=active_sessions,
-        avg_session_length=round(avg_session_length, 1)
+        avg_session_length=round(avg_session_length, 1),
+        usage_rate=round(usage_rate, 1),
     )
 
 

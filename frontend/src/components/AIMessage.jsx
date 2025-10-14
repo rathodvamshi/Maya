@@ -105,9 +105,9 @@ function insertAfter(parent, newNode, refNode) {
   } catch {}
 }
 
-const Popover = ({ x, y, onPick, onRemove }) => {
+const Popover = ({ x, y, onPick, onRemove, below }) => {
   return (
-    <div className="highlight-popover" style={{ left: x, top: y }}>
+    <div className={`highlight-popover${below ? ' below' : ''}`} style={{ left: x, top: y }}>
       {COLORS.map((c) => (
         <button
           key={c.key}
@@ -134,6 +134,7 @@ const AIMessage = forwardRef(function AIMessage({ sessionId, message, onUpdated,
   const [hasHighlights, setHasHighlights] = useState(Boolean((message?.highlights||[]).length));
   const [hlPanel, setHlPanel] = useState(null); // {x,y}
   const [hasSelection, setHasSelection] = useState(false);
+  const [savedHint, setSavedHint] = useState(null); // {x,y,text}
   // Inline toolbar (copy/speak/feedback/share) removed; those are handled by ChatWindow
 
   const rIC = (cb) => {
@@ -361,6 +362,12 @@ const AIMessage = forwardRef(function AIMessage({ sessionId, message, onUpdated,
             try { localStorage.setItem(key, JSON.stringify({ annotatedHtml, highlights })); } catch {}
           });
         } catch {}
+        // Show a subtle saved hint near the message
+        try {
+          const rect = containerRef.current?.getBoundingClientRect?.();
+          if (rect) setSavedHint({ x: rect.right - 12, y: rect.bottom + 8, text: 'Saved' });
+          setTimeout(() => setSavedHint(null), 1200);
+        } catch {}
       } catch (e) {
         // Network or server issue: fallback to localStorage
         try {
@@ -370,6 +377,12 @@ const AIMessage = forwardRef(function AIMessage({ sessionId, message, onUpdated,
           });
           onUpdated?.({ annotatedHtml, highlights });
           setHasHighlights(Boolean((highlights||[]).length));
+          // Indicate offline save
+          try {
+            const rect = containerRef.current?.getBoundingClientRect?.();
+            if (rect) setSavedHint({ x: rect.right - 12, y: rect.bottom + 8, text: 'Saved offline' });
+            setTimeout(() => setSavedHint(null), 1400);
+          } catch {}
         } catch {}
       }
     }, 800);
@@ -394,10 +407,11 @@ const AIMessage = forwardRef(function AIMessage({ sessionId, message, onUpdated,
     const vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
     const margin = 12;
     const cx = Math.min(vw - margin, Math.max(margin, x));
-    // If near very top, nudge down a bit but keep visually above via CSS translate
+    // Decide whether to render palette below selection when near the top edge
     const topClamp = Math.max(margin, Math.min(vh - margin, y));
     const cy = topClamp;
-    setPopover({ x: cx, y: cy, targetSpan });
+    const nearTop = topClamp < 64; // heuristic threshold
+    setPopover({ x: cx, y: cy, targetSpan, below: nearTop });
   }, []);
 
   // Expose imperative method so ChatWindow can open the Highlights panel from its action bar
@@ -709,7 +723,7 @@ const AIMessage = forwardRef(function AIMessage({ sessionId, message, onUpdated,
       )}
       {popover && createPortal(
         <div role="dialog" aria-label="Highlight palette">
-          <Popover x={popover.x} y={popover.y} onPick={applyColor} onRemove={removeHighlight} />
+          <Popover x={popover.x} y={popover.y} below={!!popover.below} onPick={applyColor} onRemove={removeHighlight} />
         </div>,
         document.body
       )}
@@ -729,6 +743,13 @@ const AIMessage = forwardRef(function AIMessage({ sessionId, message, onUpdated,
           onClose={() => setHlPanel(null)}
           onChange={() => { scheduleSave(); /* update indicator */ setHasHighlights(!!containerRef.current?.querySelector('span.highlight')); }}
         />,
+        document.body
+      )}
+      {savedHint && createPortal(
+        <div className="hl-saved-hint" role="status" aria-live="polite" style={{ left: savedHint.x, top: savedHint.y }}>
+          <span className="tick">✔</span>
+          <span className="text">{savedHint.text}</span>
+        </div>,
         document.body
       )}
       {/* Inline message actions row moved to ChatWindow */}

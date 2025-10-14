@@ -12,8 +12,7 @@ FAILED_PROVIDERS: dict[str, float] = {}
 # ✅ Currently, only Gemini embeddings are compatible (768-d)
 EMBEDDING_PROVIDERS = [
     ("gemini", gemini_service.create_embedding),
-    # Cohere is imported, but commented out for now
-    # ("cohere", cohere_service.create_embedding),
+    # Only Gemini is supported for consistent 768-dimensional embeddings
 ]
 
 def is_provider_available(name: str) -> bool:

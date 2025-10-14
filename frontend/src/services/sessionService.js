@@ -18,14 +18,16 @@ const sessionService = {
    */
   getSessionMessages: (sessionId, opts = {}) => {
   let limit = 50, offset = 0;
+  let signal = undefined;
   if (typeof opts === 'number') {
     limit = opts;
   } else if (opts && typeof opts === 'object') {
     if (typeof opts.limit === 'number') limit = opts.limit;
     if (typeof opts.offset === 'number') offset = opts.offset;
+    if (opts.signal) signal = opts.signal;
   }
   return apiClient
-    .get(`/sessions/${sessionId}/history`, { params: { limit, offset } })
+    .get(`/sessions/${sessionId}/history`, { params: { limit, offset }, ...(signal ? { signal } : {}) })
     .then((res) => {
       // Normalize to legacy shape expected by some components: { messages, totalMessages }
       try {

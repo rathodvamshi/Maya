@@ -5,7 +5,19 @@ import '../styles/MiniAgent.css';
 export default function MiniAgentPanel({ thread, selectedText, onClose }) {
   const [messages, setMessages] = useState(thread?.messages || []);
   const [value, setValue] = useState(selectedText || '');
-  const [pos, setPos] = useState(thread?.meta?.position || { x: 60, y: 80 });
+  const [pos, setPos] = useState(() => {
+    const saved = thread?.meta?.position;
+    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') return saved;
+    try {
+      if (typeof window !== 'undefined' && window.innerWidth <= 560) {
+        const defaultW = 320; const defaultH = 380;
+        const x = Math.max(8, window.innerWidth - defaultW - 8);
+        const y = Math.max(8, window.innerHeight - defaultH - 80);
+        return { x, y };
+      }
+    } catch {}
+    return { x: 60, y: 80 };
+  });
   const [size, setSize] = useState(thread?.meta?.size || { width: 350, height: 420 });
   const [activeSnippetId, setActiveSnippetId] = useState(null);
   const [activeSnippetText, setActiveSnippetText] = useState('');
@@ -70,6 +82,13 @@ export default function MiniAgentPanel({ thread, selectedText, onClose }) {
     dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
     e.preventDefault();
   };
+  const onTouchStart = (e) => {
+    if (!rootRef.current) return;
+    const t = e.touches && e.touches[0]; if (!t) return;
+    dragging.current = true;
+    dragOffset.current = { x: t.clientX - pos.x, y: t.clientY - pos.y };
+    e.preventDefault();
+  };
   const onMouseMove = (e) => {
     if (!dragging.current && !resizing.current) return;
     if (rafId.current) cancelAnimationFrame(rafId.current);
@@ -87,13 +106,28 @@ export default function MiniAgentPanel({ thread, selectedText, onClose }) {
       }
     });
   };
+  const onTouchMove = (e) => {
+    if (!dragging.current) return;
+    const t = e.touches && e.touches[0]; if (!t) return;
+    if (rafId.current) cancelAnimationFrame(rafId.current);
+    rafId.current = requestAnimationFrame(() => {
+      const nx = Math.max(0, Math.min(window.innerWidth - size.width, t.clientX - dragOffset.current.x));
+      const ny = Math.max(0, Math.min(window.innerHeight - size.height, t.clientY - dragOffset.current.y));
+      setPos({ x: nx, y: ny });
+    });
+  };
   const onMouseUp = () => { dragging.current = false; };
+  const onTouchEnd = () => { dragging.current = false; };
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
     };
   }, [size]);
 
@@ -248,7 +282,7 @@ export default function MiniAgentPanel({ thread, selectedText, onClose }) {
   return (
     <div ref={rootRef} className="mini-agent-panel" role="dialog" aria-label="Mini Agent"
          style={{ position: 'fixed', left: mode==='max'?0:pos.x, top: mode==='max'?0:pos.y, width: mode==='max'? 'min(100vw, 1100px)': size.width, height: mode==='max'? 'min(100vh, 80vh)': size.height, zIndex: 10030 }} onKeyDown={onKeyDown}>
-      <div className="mini-agent-header" onMouseDown={onMouseDown}>
+  <div className="mini-agent-header" onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
         <div className="mini-title">
           <strong>Mini Agent</strong>
           <span className="mini-sub"> attached to this message</span>
