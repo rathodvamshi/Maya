@@ -23,6 +23,10 @@ from app.services.neo4j_service import neo4j_service
 from app.services.memory_coordinator import gather_memory_context, post_message_update
 from app.services import deterministic_extractor, profile_service
 from app.services import nlu
+from app.services import llm_brain
+from app.services import nlg_engine
+from app.services import memory_manager
+import os, json
 from app.services.ai_service import get_response as ai_get_response
 import re
 import httpx
@@ -47,6 +51,7 @@ from dateparser.search import search_dates
 # -----------------------------
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 logger = logging.getLogger(__name__)
+DEBUG_BRAIN = os.getenv("DEBUG_BRAIN", "false").lower() == "true"
 
 # -----------------------------
 # Pydantic Models
@@ -173,6 +178,83 @@ async def _nlu_and_log(activity_logs: Optional[Collection], user_id: str, sessio
             logger.debug("nlu call/log failed", exc_info=True)
         except Exception:
             pass
+
+async def _brain_and_log(
+    *,
+    user_id: str,
+    session_id: str,
+    message: str,
+    nlu_result: Optional[Dict[str, Any]],
+    include_in_response: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Run LLM Brain planner using NLU outputs and log/return plan for debug if requested."""
+    try:
+        intent = (nlu_result or {}).get("intent") if isinstance(nlu_result, dict) else None
+        entities = (nlu_result or {}).get("entities") if isinstance(nlu_result, dict) else {}
+        plan = await llm_brain.plan_actions(
+            intent=intent,
+            entities=entities,
+            user_id=user_id,
+            session_id=session_id,
+            required_function="TextCompletion",
+            hint_text=message,
+        )
+        return plan if include_in_response else None
+    except Exception:
+        try:
+            logger.debug("llm_brain.plan_actions failed", exc_info=True)
+        except Exception:
+            pass
+        return None
+
+async def _brain_nlg_pipeline(
+    *,
+    user_id: str,
+    session_id: str,
+    message: str,
+    nlu_result: Optional[Dict[str, Any]],
+    include_in_response: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """End-to-end background pipeline: Brain → MemoryManager (async) → NLG.
+    Returns {plan, nlg} for debug when include_in_response is True; otherwise None.
+    """
+    plan = None
+    try:
+        intent = (nlu_result or {}).get("intent") if isinstance(nlu_result, dict) else None
+        entities = (nlu_result or {}).get("entities") if isinstance(nlu_result, dict) else {}
+        plan = await llm_brain.plan_actions(
+            intent=intent,
+            entities=entities,
+            user_id=user_id,
+            session_id=session_id,
+            required_function="TextCompletion",
+            hint_text=message,
+        )
+    except Exception:
+        try:
+            logger.debug("llm_brain.plan_actions failed (pipeline)", exc_info=True)
+        except Exception:
+            pass
+
+    # Kick off memory updates in background (non-blocking)
+    try:
+        if plan and isinstance(plan.get("memory_updates"), dict):
+            asyncio.create_task(memory_manager.update_memories(plan["memory_updates"], user_id, session_id))
+    except Exception:
+        pass
+
+    # Generate NLG response using plan.nlg_input (non-blocking of main request; here awaited since in bg task)
+    nlg = None
+    try:
+        if plan and isinstance(plan.get("nlg_input"), dict):
+            nlg = await nlg_engine.generate_response(plan["nlg_input"], user_id, session_id)
+    except Exception:
+        try:
+            logger.debug("nlg_engine.generate_response failed", exc_info=True)
+        except Exception:
+            pass
+
+    return {"plan": plan, "nlg": nlg} if include_in_response else None
 
 class FeedbackBody(BaseModel):
     fact_id: str
@@ -1118,11 +1200,34 @@ async def start_new_chat(
 
     # Normalize request body (compat layer)
     req_message: str = request.message  # type: ignore[attr-defined]
-    # Fire-and-forget NLU (non-blocking)
+    # Fire-and-forget NLU (non-blocking) and chain Brain planning
+    nlu_future = None
     try:
+        nlu_future = asyncio.create_task(nlu.extract_intent_entities(message=req_message, session_id=session_id, user_id=user_id))
+        # also log NLU in background
         asyncio.create_task(_nlu_and_log(activity_logs, user_id, session_id, req_message))
     except Exception:
-        pass
+        nlu_future = None
+
+    brain_future = None
+    try:
+        async def _chain_pipeline():
+            nlu_result = None
+            try:
+                if nlu_future is not None:
+                    nlu_result = await nlu_future
+            except Exception:
+                nlu_result = None
+            return await _brain_nlg_pipeline(
+                user_id=user_id,
+                session_id=session_id,
+                message=req_message,
+                nlu_result=nlu_result,
+                include_in_response=DEBUG_BRAIN,
+            )
+        brain_future = asyncio.create_task(_chain_pipeline())
+    except Exception:
+        brain_future = None
 
     # Try fast-path video handling first
     video_payload = None
@@ -1240,6 +1345,17 @@ async def start_new_chat(
                 ai_mid = m_sorted[1].get("_id")
     except Exception:
         pass
+
+    if DEBUG_BRAIN and brain_future is not None and brain_future.done():
+        try:
+            dbg = brain_future.result()
+            if dbg:
+                if isinstance(dbg.get("plan"), dict):
+                    response_text = (response_text or "") + "\n\n[debug plan]\n" + json.dumps(dbg["plan"], ensure_ascii=False)[:1500]
+                if isinstance(dbg.get("nlg"), dict):
+                    response_text = (response_text or "") + "\n\n[debug NLG]\n" + json.dumps(dbg["nlg"], ensure_ascii=False)[:600]
+        except Exception:
+            pass
 
     return NewChatResponse(
         session_id=session_id,
@@ -1560,9 +1676,22 @@ async def continue_chat(
     # Normalize request body (compat layer)
     req_message: str = request.message  # type: ignore[attr-defined]
 
-    # Fire-and-forget NLU (non-blocking)
+    # Chain NLU → Brain + MemoryManager → (optional) NLG in background (non-blocking)
     try:
-        asyncio.create_task(_nlu_and_log(activity_logs=None, user_id=user_id, session_id=session_id, message=req_message))
+        async def _chain_brain():
+            nlu_result = None
+            try:
+                nlu_result = await nlu.extract_intent_entities(message=req_message, session_id=session_id, user_id=user_id)
+            except Exception:
+                nlu_result = None
+            return await _brain_nlg_pipeline(
+                user_id=user_id,
+                session_id=session_id,
+                message=req_message,
+                nlu_result=nlu_result,
+                include_in_response=False,
+            )
+        asyncio.create_task(_chain_brain())
     except Exception:
         pass
 
@@ -1788,9 +1917,22 @@ async def continue_chat_stream(
     # Normalize request body (compat layer)
     req_message: str = request.message  # type: ignore[attr-defined]
 
-    # Fire-and-forget NLU (non-blocking)
+    # Chain NLU → Brain + MemoryManager → (optional) NLG in background (non-blocking)
     try:
-        asyncio.create_task(_nlu_and_log(activity_logs=None, user_id=user_id, session_id=session_id, message=req_message))
+        async def _chain_brain():
+            nlu_result = None
+            try:
+                nlu_result = await nlu.extract_intent_entities(message=req_message, session_id=session_id, user_id=user_id)
+            except Exception:
+                nlu_result = None
+            return await _brain_nlg_pipeline(
+                user_id=user_id,
+                session_id=session_id,
+                message=req_message,
+                nlu_result=nlu_result,
+                include_in_response=False,
+            )
+        asyncio.create_task(_chain_brain())
     except Exception:
         pass
 
