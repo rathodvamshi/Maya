@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   Copy,
   Check,
-  X,
   Loader2,
   Key,
   Plus,
@@ -17,8 +16,7 @@ import {
   Globe2,
   CloudRain,
   Youtube,
-  Brain,
-  Pencil
+  Brain
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/ProfileInterface.css';
@@ -32,16 +30,13 @@ const Profile = () => {
   // State
   // ========================
   const [user, setUser] = useState(null);
-  const [editingField, setEditingField] = useState(null);
-  const [editValues, setEditValues] = useState({});
+  // Inline editing is deprecated in favor of modal-based editing
   const [stats, setStats] = useState({});
   const [displayStats, setDisplayStats] = useState({ totalChats: 0, completedTasks: 0, usageRate: 0 });
   const statsAnimatingRef = useRef(false);
   const lastStatsRef = useRef(displayStats);
-  const [fieldStatus, setFieldStatus] = useState({}); // { field: { state:'idle'|'saving'|'success'|'error', message?:string } }
   const [globalMessage, setGlobalMessage] = useState(null); // { type:'success'|'error', text }
-  const [editingFields, setEditingFields] = useState(new Set()); // retained for username but disabled UI
-  const [savingProfile, setSavingProfile] = useState(false);
+  // Removed editingFields/savingProfile; not used with modal-based editing
   const [apiKeys, setApiKeys] = useState([]);
   const [apiLoading, setApiLoading] = useState(false);
   const [showApiModal, setShowApiModal] = useState(false);
@@ -50,12 +45,7 @@ const Profile = () => {
   const [newApiData, setNewApiData] = useState({ name: '', key: '', description: '' });
   const [apiError, setApiError] = useState(null);
   const [apiSaving, setApiSaving] = useState(false);
-  const [customStats, setCustomStats] = useState(() => {
-    try {
-      const raw = localStorage.getItem('maya_custom_stats');
-      return raw ? JSON.parse(raw) : {};
-    } catch { return {}; }
-  });
+  // Removed customStats editing (unused)
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileModalValues, setProfileModalValues] = useState({ name: '', role: '', hobbies: '' });
   const [profileModalSaving, setProfileModalSaving] = useState(false);
@@ -80,8 +70,13 @@ const Profile = () => {
   ];
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteType, setDeleteType] = useState('');
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  // Logout handler
+  const handleLogout = async () => {
+    try { authService.logout(); } catch {}
+    window.location.href = '/';
+  };
   const fileInputRef = useRef(null);
-  const editInputRefs = useRef({});
 
   // ========================
   // Load Data
@@ -105,12 +100,7 @@ const Profile = () => {
         username: meData.username || '',
       };
       setUser(merged);
-      setEditValues({
-        name: merged.name || '',
-        email: merged.email || '',
-        role: merged.role || '',
-        hobbies: merged.hobbies || [],
-      });
+      // Inline edit values removed
     };
 
     const loadStats = async () => {
@@ -185,69 +175,17 @@ const Profile = () => {
     animateStats(lastStatsRef.current, target);
   }, [stats, animateStats]);
 
-  const formatNumber = (n) => {
-    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-    return String(n);
-  };
+  // Removed unused number formatter
 
   // Display exact percentage from authoritative stats to avoid animation rounding drift
   const usageRateDisplay = `${Math.round(stats?.usageRate || 0)}%`;
 
-  useEffect(() => {
-    if (editingField && editInputRefs.current[editingField]) {
-      editInputRefs.current[editingField].focus();
-    }
-  }, [editingField]);
+  // Removed focus effect for inline editing
 
   // ========================
   // Handlers
   // ========================
-  const handleEditStart = (field) => {
-    setEditingField(field);
-    setFieldStatus(prev => ({ ...prev, [field]: { state: 'idle' } }));
-  };
-
-  const handleEditSave = async (field) => {
-    if (!user) return;
-    const value = editValues[field];
-
-    // Basic validation
-    if (field === 'email') {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (value && !emailRegex.test(value)) {
-        setFieldStatus(prev => ({ ...prev, [field]: { state: 'error', message: 'Invalid email format' } }));
-        return;
-      }
-    }
-    if (field === 'name' && value.trim().length === 0) {
-      setFieldStatus(prev => ({ ...prev, [field]: { state: 'error', message: 'Username cannot be empty' } }));
-      return;
-    }
-
-    setFieldStatus(prev => ({ ...prev, [field]: { state: 'saving' } }));
-    const result = await profileService.updateProfile({ [field]: value });
-    if (result.success) {
-      setUser(prev => ({ ...prev, [field]: value }));
-      setFieldStatus(prev => ({ ...prev, [field]: { state: 'success' } }));
-      setGlobalMessage({ type: 'success', text: `${field === 'name' ? 'Username' : field} updated.` });
-      setTimeout(() => {
-        setFieldStatus(prev => ({ ...prev, [field]: { state: 'idle' } }));
-      }, 1500);
-      setEditingField(null);
-    } else {
-      setFieldStatus(prev => ({ ...prev, [field]: { state: 'error', message: result.error || 'Update failed' } }));
-      setGlobalMessage({ type: 'error', text: result.error || 'Failed to update field' });
-    }
-  };
-
-  const handleEditCancel = (field) => {
-    setEditValues((prev) => ({ ...prev, [field]: user[field] }));
-    setEditingField(null);
-    setFieldStatus(prev => ({ ...prev, [field]: { state: 'idle' } }));
-  };
-
-  const beginEditField = (field) => { /* disabled inline editing; using modal */ };
+  // Removed inline edit handlers
 
   const openProfileModal = () => {
     setProfileModalValues({
@@ -289,7 +227,6 @@ const Profile = () => {
         hobbies: updated.hobbies ?? payload.hobbies ?? user.hobbies,
       };
       setUser(merged);
-      setEditValues(prev => ({ ...prev, name: merged.name, role: merged.role, hobbies: merged.hobbies }));
       setToast({ type: 'success', text: 'Updated profile' });
       // Refresh stats in case role/hobbies affect analytics downstream
       try {
@@ -355,44 +292,7 @@ const Profile = () => {
     autoHideToast();
   };
 
-  const handleGlobalCancel = () => {
-    // revert all edited fields to original user values
-    if (!user) return;
-    setEditValues(prev => {
-      const next = { ...prev };
-      editingFields.forEach(f => { next[f] = user[f]; });
-      return next;
-    });
-    setEditingFields(new Set());
-    setEditingField(null);
-    setFieldStatus({});
-  };
-
-  const handleGlobalSave = async () => {
-    if (!user || editingFields.size === 0) return;
-    const payload = {};
-    editingFields.forEach(f => {
-      if (f !== 'email' && editValues[f] !== user[f]) {
-        payload[f] = editValues[f];
-      }
-    });
-    if (Object.keys(payload).length === 0) {
-      setGlobalMessage({ type: 'success', text: 'No changes to save.' });
-      setEditingFields(new Set());
-      return;
-    }
-    setSavingProfile(true);
-    const result = await profileService.updateProfile(payload);
-    if (result.success) {
-      setUser(prev => ({ ...prev, ...payload }));
-      setGlobalMessage({ type: 'success', text: 'Profile updated.' });
-        setEditingFields(new Set());
-      setFieldStatus({});
-    } else {
-      setGlobalMessage({ type: 'error', text: result.error || 'Failed to update profile' });
-    }
-    setSavingProfile(false);
-  };
+  // Removed global save/cancel handlers (deprecated)
 
   // ========================
   // API Key Management
@@ -454,28 +354,12 @@ const Profile = () => {
     }
     setApiSaving(false);
   };
-
-  const handleDeleteApi = async (keyId) => {
-    if (!window.confirm('Delete this API key?')) return;
-    const result = await profileService.deleteApiKey(keyId);
-    if (result.success) {
-      setApiKeys(prev => prev.filter(k => k.id !== keyId && k._id !== keyId));
-      setGlobalMessage({ type: 'success', text: 'API key removed.' });
-    } else {
-      setGlobalMessage({ type: 'error', text: result.error || 'Failed to delete key' });
-    }
-  };
+  // Removed unused handleDeleteApi (using modal-based delete now)
 
   // ========================
   // Custom Stats Editing (local only)
   // ========================
-  const handleStatChange = (field, value) => {
-    setCustomStats(prev => {
-      const next = { ...prev, [field]: value };
-      localStorage.setItem('maya_custom_stats', JSON.stringify(next));
-      return next;
-    });
-  };
+  // Removed unused custom stat change handler
 
   const handleAvatarChange = (event) => {
     const file = event.target.files?.[0];
@@ -550,7 +434,7 @@ const Profile = () => {
 
   return (
     <div className="profile-page">
-      <div className="profile-header">
+  <div className="profile-header">
         <button
           className="profile-back-btn"
           onClick={() => navigate(-1)}
@@ -560,11 +444,11 @@ const Profile = () => {
           <span className="profile-back-text">Back</span>
         </button>
         <h1>Profile</h1>
-        <div className="profile-header-actions" />
+  <div className="profile-header-actions" />
       </div>
 
-      <div className="profile-content">
-        {/* Profile Card */}
+  <div className="profile-content">
+  {/* Profile Card */}
         <div className="profile-card">
           <div className="profile-avatar-section">
             <div className="avatar-wrapper">
@@ -625,11 +509,28 @@ const Profile = () => {
               <button className="btn-primary" onClick={openProfileModal}>Edit Profile</button>
               <button className="btn-primary" onClick={openAddApiModal}><Plus size={16} /> Add API</button>
             </div>
-            <div className="single-edit-launch">
+            <div className="single-edit-launch" style={{ display: 'flex', gap: 8 }}>
               <button className="btn-danger" onClick={() => setShowDeleteAccount(true)}>
                 <Trash2 size={16} /> Delete Account
               </button>
+              <button className="menu-item logout" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowLogoutModal(true)}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-log-out" aria-hidden="true"><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path></svg>
+                <span>Logout</span>
+              </button>
             </div>
+      {/* Logout Confirmation Modal */}
+      {showLogoutModal && (
+        <div className="modal-overlay" onClick={() => setShowLogoutModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h3>Confirm Logout</h3>
+            <p>Are you sure you want to logout?</p>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setShowLogoutModal(false)}>Cancel</button>
+              <button className="btn-danger" onClick={handleLogout}>Logout</button>
+            </div>
+          </div>
+        </div>
+      )}
 
             {/* Removed bulk save bar in favor of modal-based editing */}
 

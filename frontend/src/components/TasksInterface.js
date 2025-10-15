@@ -50,6 +50,8 @@ const TasksInterface = () => {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddText, setQuickAddText] = useState('');
   const [quickAddPriority, setQuickAddPriority] = useState('medium');
+  // Motion preference (used to disable animations)
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [sortBy, setSortBy] = useState('created');
   const [sortOrder, setSortOrder] = useState('desc');
   const [expandedGroups, setExpandedGroups] = useState(new Set(['today', 'thisWeek', 'later']));

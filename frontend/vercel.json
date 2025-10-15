@@ -1,0 +1,9 @@
+{
+  "framework": null,
+  "buildCommand": "npm run build",
+  "devCommand": "npm start",
+  "outputDirectory": "build",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ]
+}

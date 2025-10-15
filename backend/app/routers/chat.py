@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pymongo.collection import Collection
 from bson import ObjectId, errors
 from datetime import datetime
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Union
 import asyncio
 import json
 import re
@@ -86,6 +86,13 @@ class ContinueChatResponse(BaseModel):
     ai_message_id: Optional[str] = None
     user_message_id: Optional[str] = None
 
+class ChatRequest(BaseModel):
+    # Compatibility model for external clients
+    user_id: str
+    session_id: Optional[str] = None
+    message: str
+    metadata: Optional[Dict] = None
+
 class GenerateRequest(BaseModel):
     prompt: str
 
@@ -135,6 +142,37 @@ def _format_eta_for_user(eta_utc_naive: datetime, user_tz: str | None, time_form
         return aware_utc.strftime(fmt)  # Return formatted UTC datetime
     except Exception:  # Catch any exceptions
         return str(eta_utc_naive)  # Return as string if any error occurs
+
+async def _log_nlu(activity_logs: Optional[Collection], user_id: str, session_id: str, message: str, nlu_result: Dict[str, Any]) -> None:
+    """Persist NLU outcome asynchronously without blocking request path."""
+    if not activity_logs:
+        return
+    try:
+        doc = {
+            "type": "nlu_result",
+            "user_id": user_id,
+            "session_id": session_id,
+            "message": message,
+            "nlu": nlu_result,
+            "timestamp": datetime.utcnow(),
+        }
+        await run_in_threadpool(activity_logs.insert_one, doc)
+    except Exception:
+        try:
+            logger.debug("nlu log insert failed", exc_info=True)
+        except Exception:
+            pass
+
+async def _nlu_and_log(activity_logs: Optional[Collection], user_id: str, session_id: str, message: str) -> None:
+    """Run NLU and log result; designed for fire-and-forget via create_task."""
+    try:
+        res = await nlu.extract_intent_entities(message=message, session_id=session_id, user_id=user_id)
+        await _log_nlu(activity_logs, user_id, session_id, message, res)
+    except Exception:
+        try:
+            logger.debug("nlu call/log failed", exc_info=True)
+        except Exception:
+            pass
 
 class FeedbackBody(BaseModel):
     fact_id: str
@@ -937,8 +975,8 @@ async def handle_chat_message(
                 confirmation_message = flow_result["message"]
                 
                 # Log the creation
-                await log_message(session_id, "user", message, chat_log_collection)
-                await log_message(session_id, "assistant", confirmation_message, chat_log_collection)
+            asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
+            asyncio.create_task(log_message(session_id, "assistant", confirmation_message, chat_log_collection))
                 
                 return confirmation_message
             elif flow_result.get("needs_response"):
@@ -946,8 +984,8 @@ async def handle_chat_message(
                 clarification_message = flow_result["message"]
                 
                 # Log the clarification request
-                await log_message(session_id, "user", message, chat_log_collection)
-                await log_message(session_id, "assistant", clarification_message, chat_log_collection)
+            asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
+            asyncio.create_task(log_message(session_id, "assistant", clarification_message, chat_log_collection))
                 
                 return clarification_message
         except Exception as e:
@@ -1006,8 +1044,8 @@ async def handle_chat_message(
             "Let's try again in a moment."
         )
 
-    await log_message(session_id, "user", message, chat_log_collection)
-    await log_message(session_id, "assistant", ai_response_text, chat_log_collection)
+    asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
+    asyncio.create_task(log_message(session_id, "assistant", ai_response_text, chat_log_collection))
 
     # Unified session history logging (memory_coordinator)
     try:
@@ -1050,7 +1088,7 @@ async def log_message(session_id: str, sender: str, text: str, collection: Colle
 
 @router.post("/new", response_model=NewChatResponse)
 async def start_new_chat(
-    request: NewChatRequest,
+    request: Union[NewChatRequest, ChatRequest],
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
     tasks: Collection = Depends(get_tasks_collection),
@@ -1078,19 +1116,27 @@ async def start_new_chat(
     result = await run_in_threadpool(sessions.insert_one, session_data)
     session_id = str(result.inserted_id)
 
+    # Normalize request body (compat layer)
+    req_message: str = request.message  # type: ignore[attr-defined]
+    # Fire-and-forget NLU (non-blocking)
+    try:
+        asyncio.create_task(_nlu_and_log(activity_logs, user_id, session_id, req_message))
+    except Exception:
+        pass
+
     # Try fast-path video handling first
     video_payload = None
     video_intent_meta = None
     try:
-        vi = await _maybe_handle_video_intent(request.message)
+        vi = await _maybe_handle_video_intent(req_message)
         if vi and vi.get("handled"):
-            await log_message(session_id, "user", request.message, chat_log)
+            asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
             resp_txt = vi.get("response_text") or ""
-            await log_message(session_id, "assistant", resp_txt, chat_log)
+            asyncio.create_task(log_message(session_id, "assistant", resp_txt, chat_log))
             # Persist into session messages for history
             try:
                 now2 = datetime.utcnow()
-                user_doc2 = {"_id": ObjectId(), "sender": "user", "text": request.message, "timestamp": now2}
+                user_doc2 = {"_id": ObjectId(), "sender": "user", "text": req_message, "timestamp": now2}
                 ai_doc2 = {"_id": ObjectId(), "sender": "assistant", "text": resp_txt, "timestamp": now2}
                 await run_in_threadpool(
                     sessions.update_one,
@@ -1132,7 +1178,7 @@ async def start_new_chat(
                         "type": "youtube_play",
                         "user_id": str(current_user.get("_id")),
                         "session_id": session_id,
-                        "user_query": request.message,
+                        "user_query": req_message,
                         "matched_title": (vi.get("video") or {}).get("title"),
                         "video_id": vid,
                         "timestamp": datetime.utcnow(),
@@ -1250,8 +1296,8 @@ async def continue_chat(
             except Exception:
                 cur = None
             if cur and cur.get("videoId"):
-                await log_message(session_id, "user", request.message, chat_log)
-                await log_message(session_id, "assistant", "🔁 Replaying your requested video", chat_log)
+            asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
+            asyncio.create_task(log_message(session_id, "assistant", "🔁 Replaying your requested video", chat_log))
                 return ContinueChatResponse(response_text="🔁 Replaying your requested video", video={**cur, "autoplay": True})
 
         # If there's a pending clarification, merge with new message
@@ -1270,8 +1316,8 @@ async def continue_chat(
                         reply_txt = f"▶️ Playing {title}{ch_str}"
                         await _clear_pending_video(session_id)
                         # Log messages
-                        await log_message(session_id, "user", request.message, chat_log)
-                        await log_message(session_id, "assistant", reply_txt, chat_log)
+                        asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
+                        asyncio.create_task(log_message(session_id, "assistant", reply_txt, chat_log))
                         try:
                             await redis_service.set_prefetched_data(f"session:video:{session_id}", best, ttl_seconds=24 * 3600)
                         except Exception:
@@ -1279,15 +1325,15 @@ async def continue_chat(
                         return ContinueChatResponse(response_text=reply_txt, video={**best, "autoplay": True}, video_intent=merged)
             # If still unclear, keep asking—a more specific prompt
             ask = "🤔 I can play it—please confirm the exact song or language (e.g., 'Chaleya Hindi')."
-            await log_message(session_id, "user", request.message, chat_log)
-            await log_message(session_id, "assistant", ask, chat_log)
+            asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
+            asyncio.create_task(log_message(session_id, "assistant", ask, chat_log))
             return ContinueChatResponse(response_text=ask, video=None, video_intent=pending)
 
         # No pending—try normal fast path
         vi = await _maybe_handle_video_intent(request.message)
         if vi and vi.get("handled"):
-            await log_message(session_id, "user", request.message, chat_log)
-            await log_message(session_id, "assistant", vi.get("response_text") or "", chat_log)
+            asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
+            asyncio.create_task(log_message(session_id, "assistant", vi.get("response_text") or "", chat_log))
             if vi.get("video") is None and vi.get("video_intent"):
                 try:
                     await _store_pending_video(session_id, vi.get("video_intent"))
@@ -1480,7 +1526,7 @@ async def start_new_chat_stream(
 @router.post("/{session_id}", response_model=ContinueChatResponse)
 async def continue_chat(
     session_id: str,
-    request: ContinueChatRequest,
+    request: Union[ContinueChatRequest, ChatRequest],
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
     tasks: Collection = Depends(get_tasks_collection),
@@ -1511,11 +1557,20 @@ async def continue_chat(
         raise HTTPException(status_code=404, detail="Session not found.")
 
     # Gather state and context concurrently
+    # Normalize request body (compat layer)
+    req_message: str = request.message  # type: ignore[attr-defined]
+
+    # Fire-and-forget NLU (non-blocking)
+    try:
+        asyncio.create_task(_nlu_and_log(activity_logs=None, user_id=user_id, session_id=session_id, message=req_message))
+    except Exception:
+        pass
+
     context = await gather_memory_context(
         user_id=user_id,
         user_key=current_user.get("email", user_id),
         session_id=session_id,
-        latest_user_message=request.message,
+        latest_user_message=req_message,
         recent_messages=session.get("messages", []),
     )
     current_state = context.get("state", "general_conversation")
@@ -1705,7 +1760,7 @@ async def continue_chat(
 @router.post("/{session_id}/stream")
 async def continue_chat_stream(
     session_id: str,
-    request: ContinueChatRequest,
+    request: Union[ContinueChatRequest, ChatRequest],
     current_user: dict = Depends(get_current_active_user),
     sessions: Collection = Depends(get_sessions_collection),
     tasks: Collection = Depends(get_tasks_collection),
@@ -1730,11 +1785,20 @@ async def continue_chat_stream(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found.")
 
+    # Normalize request body (compat layer)
+    req_message: str = request.message  # type: ignore[attr-defined]
+
+    # Fire-and-forget NLU (non-blocking)
+    try:
+        asyncio.create_task(_nlu_and_log(activity_logs=None, user_id=user_id, session_id=session_id, message=req_message))
+    except Exception:
+        pass
+
     context = await gather_memory_context(
         user_id=user_id,
         user_key=current_user.get("email", user_id),
         session_id=session_id,
-        latest_user_message=request.message,
+        latest_user_message=req_message,
         recent_messages=session.get("messages", []),
     )
     current_state = context.get("state", "general_conversation")

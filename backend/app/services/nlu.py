@@ -11,8 +11,12 @@ from datetime import datetime
 import pytz
 import dateparser
 import jsonschema
+import hashlib
+import httpx
 
 from app.services import ai_service, spacy_nlu
+from app.services import redis_service
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -449,3 +453,209 @@ def route_intent_to_skill(nlu_result: dict) -> dict:
         return {"skill": "chat", "intent": "chat_general", "payload": data}
     # default fallback
     return {"skill": "chat", "intent": action or "fallback", "payload": data}
+
+# -----------------------
+# Gemini-based NLU (async, strict JSON schema)
+# -----------------------
+
+SYSTEM_PROMPT = (
+    "\n".join([
+        "You are an intelligent Natural Language Understanding (NLU) engine.",
+        "",
+        "Your task:",
+        "",
+        "Identify the user's intent.",
+        "",
+        "Extract entities relevant to that intent.",
+        "",
+        "If the input is ambiguous or incomplete:",
+        "",
+        "Do NOT guess.",
+        "",
+        "Ask a short, friendly clarification question.",
+        "",
+        "Output strictly JSON.",
+        "",
+        "Schema:",
+        "{",
+        "\"intent\": string | null,",
+        "\"entities\": object | null,",
+        "\"clarification_needed\": boolean,",
+        "\"question\": string | null",
+        "}",
+        "",
+        "Rules:",
+        "",
+        "Set clarification_needed=true and provide a question if needed.",
+        "",
+        "Set clarification_needed=false if confident and fill intent/entities.",
+        "",
+        "Always return valid JSON; do not include natural language outside JSON.",
+    ])
+)
+
+def _gemini_model_name() -> str:
+    # Prefer the requested 2.5-flash if configured; fallback to existing setting or a sane default
+    return getattr(settings, "GOOGLE_MODEL", None) or "gemini-1.5-flash"
+
+def _gemini_endpoint() -> str:
+    model = _gemini_model_name()
+    # Google Generative Language API v1beta endpoint for generateContent
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+def _gemini_headers() -> Dict[str, str]:
+    api_key = (getattr(settings, "GEMINI_API_KEY", None) or "").strip()
+    # Prefer GEMINI_API_KEYS (comma-separated); pick first if present
+    keys = [k.strip() for k in (getattr(settings, "GEMINI_API_KEYS", None) or "").split(",") if k.strip()]
+    if keys:
+        api_key = keys[0]
+    return {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+def _build_prompt(user_message: str, clarification_answers: Optional[List[str]] = None) -> str:
+    if clarification_answers:
+        clar = "\n".join([f"User clarification: {c}" for c in clarification_answers if c])
+        return f"{SYSTEM_PROMPT}\n\nUser message: {user_message}\n{clar}"
+    return f"{SYSTEM_PROMPT}\n\nUser message: {user_message}"
+
+def _cache_key(user_id: Optional[str], session_id: Optional[str], message: str) -> str:
+    raw = f"{user_id or ''}|{session_id or ''}|{message}"
+    return "nlu:gemini:v1:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def _normalize_output(obj: Dict[str, Any]) -> Dict[str, Any]:
+    # Ensure all required keys exist with proper types
+    intent = obj.get("intent") if isinstance(obj.get("intent"), str) else None
+    entities = obj.get("entities") if isinstance(obj.get("entities"), dict) else ({} if obj.get("entities") else None)
+    clarification_needed = bool(obj.get("clarification_needed"))
+    question = obj.get("question") if isinstance(obj.get("question"), str) else None
+    if clarification_needed and not question:
+        question = "Could you clarify your request?"
+    return {
+        "intent": intent,
+        "entities": entities,
+        "clarification_needed": clarification_needed,
+        "question": question,
+    }
+
+async def _call_gemini_json(user_message: str, clarification_answers: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    """Call Gemini asynchronously and attempt to parse a strict-JSON reply."""
+    endpoint = _gemini_endpoint()
+    headers = _gemini_headers()
+    payload = {
+        # Minimal request with a single content; system-style prompt prepended to user message
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": _build_prompt(user_message, clarification_answers)}],
+            }
+        ],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 500},
+    }
+    # Attach API key via query string per Google API; retain header for flexibility
+    api_key = headers.get("x-goog-api-key", "")
+    params = {"key": api_key} if api_key else {}
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(endpoint, headers={"Content-Type": "application/json"}, params=params, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            # Gemini JSON parsing (extract text from candidates[0].content.parts)
+            text = None
+            try:
+                candidates = data.get("candidates") or []
+                if candidates:
+                    parts = ((candidates[0] or {}).get("content") or {}).get("parts") or []
+                    if parts and isinstance(parts[0], dict):
+                        text = parts[0].get("text")
+            except Exception:
+                text = None
+            if not text:
+                return None
+            # Robustly strip to first JSON object
+            s = text.strip()
+            start = s.find("{")
+            end = s.rfind("}")
+            json_str = s[start:end + 1] if (start != -1 and end != -1 and end > start) else s
+            obj = json.loads(json_str)
+            return _normalize_output(obj)
+    except Exception as e:
+        logger.warning("Gemini call failed: %s", e)
+        return None
+
+async def extract_intent_entities(
+    *,
+    message: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    max_clarifications: int = 2,
+    clarification_answers: Optional[List[str]] = None,
+    cache_ttl_seconds: int = 300,
+) -> Dict[str, Any]:
+    """
+    Async NLU entrypoint for the chat router (Step 2 integration).
+    - Normalizes inputs
+    - Uses Redis for short-term caching
+    - Calls Gemini asynchronously for strict JSON output
+    - Supports a bounded clarification loop (callers provide clarification_answers in subsequent calls)
+    Returns dict with keys: intent, entities, clarification_needed, question.
+    """
+    user_message = (message or "").strip()
+    if not user_message:
+        return {
+            "intent": None,
+            "entities": None,
+            "clarification_needed": True,
+            "question": "Please share your request so I can help.",
+        }
+
+    # Attempt cache lookup (only for initial query without clarifications)
+    cached: Optional[Dict[str, Any]] = None
+    try:
+        if not clarification_answers:
+            client = redis_service.get_client()
+            if client:
+                key = _cache_key(user_id, session_id, user_message)
+                cached = await client.get(key)
+                if cached:
+                    try:
+                        cached_obj = json.loads(cached)
+                        return _normalize_output(cached_obj)
+                    except Exception:
+                        cached = None
+    except Exception:
+        cached = None
+
+    # Clarification loop (external interaction is handled by caller; we just compute question)
+    answers: List[str] = list(clarification_answers or [])
+    attempt = 0
+    result: Optional[Dict[str, Any]] = None
+    while attempt <= max_clarifications:
+        result = await _call_gemini_json(user_message, answers if answers else None)
+        if not result:
+            # graceful fallback
+            return {
+                "intent": None,
+                "entities": None,
+                "clarification_needed": True,
+                "question": "I ran into an issue analyzing that. Could you rephrase or add details?",
+            }
+        if not result.get("clarification_needed"):
+            break
+        # If clarification is still needed and we already consumed provided answers, break
+        if attempt >= max_clarifications or (clarification_answers and attempt >= len(answers)):
+            break
+        attempt += 1
+
+    # Cache only confident final results (no clarification needed)
+    try:
+        if result and not result.get("clarification_needed"):
+            client = redis_service.get_client()
+            if client:
+                key = _cache_key(user_id, session_id, user_message)
+                await client.setex(key, cache_ttl_seconds, json.dumps(result))
+    except Exception:
+        pass
+
+    # Ensure normalized output
+    return _normalize_output(result or {})
