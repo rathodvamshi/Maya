@@ -3,6 +3,7 @@
   "buildCommand": "npm run build",
   "devCommand": "npm start",
   "outputDirectory": "build",
+  "installCommand": "npm ci --legacy-peer-deps",
   "rewrites": [
     { "source": "/(.*)", "destination": "/" }
   ]

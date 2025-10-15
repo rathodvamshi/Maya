@@ -29,6 +29,7 @@ from app.services import redis_service
 from app.services import pinecone_service
 from app.services.neo4j_service import neo4j_service
 from app.database import db_client
+from app.services import nlu as nlu_service
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,98 @@ async def plan_actions(
         except Exception:
             pass
 
+    # Pre-compute memory updates (non-persistent objects) and schedule persistence in background.
+    def _derive_memory_updates() -> Dict[str, Any]:
+        """Detect potential updates for redis/pinecone/neo4j/profile_db without I/O."""
+        updates: Dict[str, Any] = {
+            "redis": {},
+            "pinecone": {},
+            "neo4j": {},
+            "profile_db": {},
+        }
+        # Example heuristic: derive a short session summary from hint_text
+        if hint_text:
+            summary = (hint_text.strip()[:300])
+            updates["redis"]["session_summary"] = {"key": f"sess:{session_id}:summary", "value": summary}
+            updates["pinecone"]["session_summary"] = {"memory_id": f"summary:{session_id}", "text": summary, "lifecycle_state": "candidate"}
+
+        # Derive user facts from entities (name/location/preferences are common)
+        ent = entities or {}
+        facts_payload: Dict[str, Any] = {}
+        if ent.get("name"):
+            facts_payload.setdefault("facts", []).append({"relation": "IS_NAMED", "value": ent.get("name")})
+        if ent.get("location"):
+            facts_payload.setdefault("facts", []).append({"relation": "LIVES_IN", "value": ent.get("location")})
+        if ent.get("cuisine"):
+            facts_payload.setdefault("facts", []).append({"relation": "LIKES_CUISINE", "value": ent.get("cuisine")})
+        if facts_payload:
+            updates["neo4j"]["facts"] = facts_payload
+
+        # Profile DB: persist preferences when available
+        profile_updates: Dict[str, Any] = {}
+        if ent.get("cuisine"):
+            profile_updates.setdefault("favorites", {})["cuisine"] = ent.get("cuisine")
+        if ent.get("name"):
+            profile_updates["name"] = ent.get("name")
+        if profile_updates:
+            updates["profile_db"]["set"] = profile_updates
+
+        return updates
+
+    async def _persist_memory_updates(proposed: Dict[str, Any]) -> None:
+        """Persist proposed updates without blocking request/response path."""
+        try:
+            # Redis summary
+            try:
+                redis_upd = proposed.get("redis", {}).get("session_summary")
+                if redis_upd:
+                    client = redis_service.get_client()
+                    if client:
+                        await client.set(redis_upd["key"], redis_upd["value"])
+            except Exception:
+                pass
+
+            # Pinecone summary (upsert as memory embedding)
+            try:
+                pc = proposed.get("pinecone", {}).get("session_summary")
+                if pc:
+                    await run_in_threadpool(
+                        pinecone_service.upsert_memory_embedding,
+                        pc.get("memory_id"), user_id, pc.get("text"), pc.get("lifecycle_state", "candidate")
+                    )
+            except Exception:
+                pass
+
+            # Neo4j facts (structured)
+            try:
+                facts = proposed.get("neo4j", {}).get("facts")
+                if facts and isinstance(facts, dict):
+                    await neo4j_service.add_entities_and_relationships(facts)
+            except Exception:
+                pass
+
+            # Profile DB update (merge semantics)
+            try:
+                prof = proposed.get("profile_db", {}).get("set")
+                if prof:
+                    col = db_client.get_user_profile_collection()
+                    if col:
+                        await run_in_threadpool(
+                            col.update_one,
+                            {"_id": str(user_id)},
+                            {"$set": prof},
+                            upsert=True,
+                        )
+            except Exception:
+                pass
+        except Exception:
+            try:
+                logger.debug("_persist_memory_updates failed", exc_info=True)
+            except Exception:
+                pass
+
+    proposed_updates = _derive_memory_updates()
+
     # Background: task management orchestration when intent implies tasking
     async def _task_side_effects():
         try:
@@ -331,6 +424,7 @@ async def plan_actions(
     try:
         asyncio.create_task(_telemetry())
         asyncio.create_task(_task_side_effects())
+        asyncio.create_task(_persist_memory_updates(proposed_updates))
     except Exception:
         pass
 
@@ -345,12 +439,7 @@ async def plan_actions(
             "api_provider_used": {"provider_id": provider_id, "checked_limit": True},
             "confidence": 0.8 if provider_id else 0.6,
         },
-        "memory_updates": {
-            "redis": {},
-            "pinecone": {},
-            "neo4j": {},
-            "profile_db": {},
-        },
+        "memory_updates": proposed_updates,
         "tasks": actions if any(a.get("action") == "create_task" for a in actions) else [],
         "api_calls": external_calls_needed,
         "log": {"warnings": [], "errors": []},
