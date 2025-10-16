@@ -9,6 +9,13 @@ const highlightService = {
     });
   },
   getMessage(sessionId, messageId) {
+    // Avoid calling backend if ids are obviously invalid; prevents 404 noise
+    try {
+      const isOid = (v) => typeof v === 'string' && /^[a-f\d]{24}$/i.test(v);
+      if (!isOid(sessionId) || !isOid(messageId)) {
+        return Promise.resolve({ data: null });
+      }
+    } catch {}
     return apiClient.get(`/annotations/sessions/${sessionId}/messages/${messageId}`);
   },
 };

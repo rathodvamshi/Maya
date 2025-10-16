@@ -2,6 +2,14 @@
 
 import apiClient from './api';
 
+// Simple cross-tab broadcast for real-time updates without dedicated WebSocket
+let bc;
+try { bc = new BroadcastChannel('maya_tasks'); } catch {}
+const notifyTasks = (type, payload) => {
+  try { bc && bc.postMessage({ type, payload, ts: Date.now() }); } catch {}
+  try { window.dispatchEvent(new CustomEvent('maya:tasks-updated')); } catch {}
+};
+
 class TaskService {
   // ======================================================
   // TASK CRUD OPERATIONS
@@ -37,6 +45,7 @@ class TaskService {
   async createTask(taskData) {
     try {
       const response = await apiClient.post('/tasks', taskData);
+      notifyTasks('created', response.data);
       return {
         success: true,
         data: response.data
@@ -109,6 +118,7 @@ class TaskService {
   async updateTask(taskId, updates) {
     try {
       const response = await apiClient.put(`/tasks/${taskId}`, updates);
+      notifyTasks('updated', { id: taskId, updates, data: response.data });
       return {
         success: true,
         data: response.data
@@ -125,6 +135,7 @@ class TaskService {
   async deleteTask(taskId) {
     try {
       const response = await apiClient.delete(`/tasks/${taskId}`);
+      notifyTasks('deleted', { id: taskId });
       return {
         success: true,
         data: response.data

@@ -12,9 +12,20 @@ logger = logging.getLogger(__name__)
 # =====================================================
 pc: Optional[Any] = None
 index = None
-PINECONE_INDEX_NAME = settings.PINECONE_INDEX or "maya2-session-memory"
-# This dimension MUST match your embedding model. Updated to 1536 for the new Pinecone index.
-REQUIRED_DIMENSION = 1536
+PINECONE_INDEX_NAME = settings.PINECONE_INDEX or "maya"
+# This dimension MUST match your embedding model. Default to 1024 for OpenAI text-embedding-3-large.
+REQUIRED_DIMENSION = getattr(settings, "PINECONE_DIMENSIONS", 1024)
+
+def ensure_index() -> bool:
+    """Public check to ensure the Pinecone index is initialized and matches required dimension.
+
+    Returns True if ready, False otherwise.
+    """
+    try:
+        initialize_pinecone()
+        return index is not None
+    except Exception:
+        return False
 
 # =====================================================
 # 🔹 Initialize Pinecone
@@ -116,6 +127,14 @@ def initialize_pinecone():
         pc = None
         index = None
 
+def ensure_index() -> bool:
+    """Public check to ensure index is initialized and has expected dimension."""
+    try:
+        initialize_pinecone()
+        return index is not None
+    except Exception:
+        return False
+
 # =====================================================
 # 🔹 Internal Helper: Ensure Index Ready
 # =====================================================
@@ -141,6 +160,27 @@ def upsert_session_summary(session_id: str, summary: str):
             logger.info(f"✅ Upserted summary for session {session_id}.")
     except Exception as e:
         logger.error(f"❌ Failed to upsert summary: {e}")
+
+def upsert_memory_vector(memory_id: str, user_id: str, vector: list[float], metadata: Dict[str, Any]):
+    """Upsert a precomputed vector for a memory with metadata.
+
+    Vector ID format: memory:{memory_id}
+    Namespace: user:{user_id}
+    """
+    if not _ensure_index_ready():
+        logger.error("❌ Pinecone index unavailable. Skipping upsert.")
+        return
+    if not vector or len(vector) != REQUIRED_DIMENSION:
+        raise ValueError(f"Vector dimension must be {REQUIRED_DIMENSION}")
+    vid = f"memory:{memory_id}"
+    ns = f"user:{user_id}"
+    try:
+        try:
+            index.upsert(vectors=[(vid, vector, metadata)], namespace=ns)
+        except TypeError:
+            index.upsert(vectors=[(vid, vector, metadata)])
+    except Exception as e:
+        logger.error(f"❌ upsert_memory_vector failed: {e}")
 
 # =====================================================
 # 🔹 Query Relevant Summary
@@ -194,6 +234,9 @@ class PineconeService:
     @staticmethod
     def get_index():
         return index
+    @staticmethod
+    def ensure_index() -> bool:
+        return ensure_index()
 
 pinecone_service = PineconeService()
 
@@ -334,6 +377,7 @@ __all__ = [
     "upsert_message_embedding",
     "upsert_user_fact_embedding",
     "upsert_memory_embedding",
+    "upsert_memory_vector",
     "query_user_memories",
     "query_similar_texts",
     "query_user_facts",
@@ -548,3 +592,27 @@ def delete_user_namespace(user_id: str) -> None:
         logger.debug("Namespace delete not supported by this SDK; skipping")
     except Exception as e:  # noqa: BLE001
         logger.debug(f"delete_user_namespace failed: {e}")
+
+
+# =====================================================
+# 🔹 Upsert precomputed vector for memory (avoid re-embedding)
+# =====================================================
+def upsert_memory_vector(memory_id: str, user_id: str, vector: List[float], metadata: Dict[str, Any]) -> None:
+    """Upsert a memory vector directly. Validates dimension and uses per-user namespace."""
+    if not _ensure_index_ready():
+        return
+    if not vector or len(vector) != REQUIRED_DIMENSION:
+        raise ValueError(f"Vector dimension mismatch: expected {REQUIRED_DIMENSION}, got {len(vector) if vector else 'None'}")
+    vid = f"memory:{memory_id}"
+    ns = f"user:{user_id}"
+    meta = dict(metadata or {})
+    meta.setdefault("user_id", user_id)
+    meta.setdefault("kind", "memory")
+    meta.setdefault("memory_id", memory_id)
+    try:
+        try:
+            index.upsert(vectors=[(vid, vector, meta)], namespace=ns)
+        except TypeError:
+            index.upsert(vectors=[(vid, vector, meta)])
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"upsert_memory_vector failed: {e}")

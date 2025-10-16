@@ -555,14 +555,24 @@
   border-radius: 8px;
   cursor: pointer;
   color: #666;
-  transition: all 0.2s ease-in-out;
+  transition: transform .18s ease, color .18s ease, background .18s ease, box-shadow .18s ease;
 }
 
 .message-actions .action-btn:hover {
-  background: #f5f5f5;
-  color: #1976d2;
-  transform: scale(1.1);
+  background: linear-gradient(180deg, #f7f7f7, #efefef);
+  color: #0f62fe;
+  transform: translateY(-1px) scale(1.07);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
 }
+
+/* Unique accents per action (toolbar) */
+.message-actions .action-btn.copy:hover { color: #0ea5e9; }
+.message-actions .action-btn.speak:hover { color: #8b5cf6; }
+.message-actions .action-btn.manage-highlights:hover { color: #f59e0b; }
+.message-actions .action-btn.agent:hover { color: #22c55e; }
+.message-actions .action-btn.good:hover { color: #16a34a; }
+.message-actions .action-btn.bad:hover { color: #ef4444; }
+.message-actions .action-btn.share:hover { color: #0ea5e9; }
 
 /* === Hover reveal positioning below message === */
 /* Remove flow-based height tricks; absolute positioning handles it */
@@ -604,6 +614,25 @@
 .scroll-to-bottom:hover {
   background: #1565c0;
   transform: scale(1.1);
+}
+
+/* Inline agent button accent */
+.message-actions .action-btn.agent:hover {
+  color: #0ea5e9;
+}
+
+/* Highlighted spans hover micro-interaction */
+.message-content .highlight {
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);
+}
+.message-content .highlight:hover {
+  filter: saturate(1.15);
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.14);
+}
+
+/* Responsive paddings for chat for small screens */
+@media (max-width: 768px) {
+  .chat-messages { padding: 16px 12px 20px 12px; }
 }
 
 

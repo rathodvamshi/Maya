@@ -32,6 +32,10 @@ class EnhancedMemoryService:
             
             # Initialize Neo4j
             await self.neo4j.connect()
+            try:
+                await self.neo4j.start_heartbeat()
+            except Exception:
+                pass
             
             logger.info("✅ Enhanced memory service initialized")
             return True

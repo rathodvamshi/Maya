@@ -31,6 +31,17 @@ const Tasks = () => {
       setLoading(false);
     };
     fetchTasks();
+    let bc;
+    try {
+      bc = new BroadcastChannel('maya_tasks');
+      bc.onmessage = () => fetchTasks();
+    } catch {}
+    const w = () => fetchTasks();
+    try { window.addEventListener('maya:tasks-updated', w); } catch {}
+    return () => {
+      try { window.removeEventListener('maya:tasks-updated', w); } catch {}
+      try { if (bc) bc.close(); } catch {}
+    };
   }, []);
 
   const [showModal, setShowModal] = useState(false);

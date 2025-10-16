@@ -10,6 +10,8 @@ import logging
 from app.database import db_client
 from app.services.redis_service import get_client as get_redis_client, ping as redis_ping
 from app.celery_worker import celery_app
+from app.services import metrics as _metrics
+from app.services.telemetry import aggregate_average_latency, aggregate_provider_success
 
 logger = logging.getLogger(__name__)
 
@@ -135,4 +137,26 @@ async def health_overall() -> Dict[str, Any]:
         "status": "healthy" if overall_healthy else "unhealthy",
         "services": services,
         "overall_healthy": overall_healthy
+    }
+
+
+@router.get("/telemetry")
+async def health_telemetry() -> Dict[str, Any]:
+    """Lightweight telemetry snapshot for dashboards and probes."""
+    try:
+        snap = _metrics.snapshot()
+    except Exception:
+        snap = {}
+    try:
+        avg_lat = await aggregate_average_latency(50)
+    except Exception:
+        avg_lat = {}
+    try:
+        prov = await aggregate_provider_success(200)
+    except Exception:
+        prov = {}
+    return {
+        "metrics": snap,
+        "avg_latency_ms": avg_lat,
+        "provider_success": prov,
     }

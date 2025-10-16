@@ -6,7 +6,8 @@ Run inside the backend container:
 import os
 from neo4j import GraphDatabase
 
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+# Enforce secure Aura URI by default
+NEO4J_URI = os.getenv("NEO4J_URI", "neo4j+s://bb2cd868.databases.neo4j.io")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password123")
 

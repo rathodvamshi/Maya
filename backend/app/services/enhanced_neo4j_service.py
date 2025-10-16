@@ -8,9 +8,16 @@ import logging
 import os
 import time
 from typing import Optional, Dict, Any, List
+import asyncio
 from datetime import datetime
 
 from neo4j import AsyncGraphDatabase, AsyncDriver, GraphDatabase, Driver
+from neo4j.exceptions import (
+    ServiceUnavailable,
+    SessionExpired,
+    TransientError,
+    Neo4jError,
+)
 
 from app.config import settings
 
@@ -23,6 +30,64 @@ class EnhancedNeo4jService:
     _driver: Optional[AsyncDriver] = None
     _database: Optional[str] = None
     _disabled: bool = False
+    _offline: bool = False
+
+    # Avoid long-lived pooled sessions with Aura; use short-lived sessions per op
+    _rr_index: int = 0
+
+    # Heartbeat
+    _hb_task: Optional[asyncio.Task] = None
+    _hb_interval_secs: int = 60  # 1 minute
+
+    AURA_SECURE_URI: str = "neo4j+s://bb2cd868.databases.neo4j.io"
+
+    def _ensure_secure_uri(self) -> str:
+        # Always enforce secure Aura URI
+        return self.AURA_SECURE_URI
+
+    def _is_transient_error(self, e: Exception) -> bool:
+        msg = (str(e) or "").lower()
+        if isinstance(e, (ServiceUnavailable, SessionExpired, TransientError, ConnectionResetError)):
+            return True
+        if any(s in msg for s in [
+            "defunct connection",
+            "unable to retrieve routing information",
+            "connection reset",
+            "closed while sending",
+        ]):
+            return True
+        if isinstance(e, Neo4jError) and any(s in msg for s in ["routing", "service unavailable", "session expired"]):
+            return True
+        return False
+
+    async def _reinitialize_driver(self):
+        # Close old driver
+        if self._driver:
+            try:
+                await self._driver.close()
+            except Exception:
+                pass
+            self._driver = None
+        # No pooled sessions to close
+        # Reconnect
+        try:
+            uri = self._ensure_secure_uri()
+            self._driver = AsyncGraphDatabase.driver(
+                uri,
+                auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+                max_connection_pool_size=10,
+                connection_acquisition_timeout=15,
+                max_connection_lifetime=300,
+                max_transaction_retry_time=30,
+                connection_timeout=10,
+            )
+            await self._driver.verify_connectivity()
+            self._database = getattr(settings, "NEO4J_DATABASE", None) or None
+            self._offline = False
+            logger.info("✅ Neo4j reconnected successfully.")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to reinitialize Neo4j driver: {e}")
+            self._offline = True
 
     async def connect(self, retries: Optional[int] = None):
         """Establish async driver with retry/backoff."""
@@ -39,12 +104,19 @@ class EnhancedNeo4jService:
         last_err: Optional[Exception] = None
         for attempt in range(retries):
             try:
+                uri = self._ensure_secure_uri()
                 self._driver = AsyncGraphDatabase.driver(
-                    settings.NEO4J_URI,
+                    uri,
                     auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+                    max_connection_pool_size=10,
+                    connection_acquisition_timeout=15,
+                    max_connection_lifetime=300,
+                    max_transaction_retry_time=30,
+                    connection_timeout=10,
                 )
                 await self._driver.verify_connectivity()
                 self._database = getattr(settings, "NEO4J_DATABASE", None) or None
+                self._offline = False
                 
                 if attempt > 0:
                     logger.info(f"Neo4j async connected after retry attempt={attempt}")
@@ -62,37 +134,63 @@ class EnhancedNeo4jService:
                     delay = min(base_delay * (1.6 ** attempt), 5.0)
                     logger.warning(f"Neo4j async connect retry attempt={attempt+1}/{retries} in {delay:.2f}s: {e}")
                     try:
-                        import asyncio
                         await asyncio.sleep(delay)
                     except Exception:
                         break
                         
         if last_err:
             logger.warning(f"⚠️ Neo4j async connect failed after {retries} attempts: {last_err}")
+            logger.warning("❌ Neo4j functionality disabled for this session")
             self._disabled = True
+            self._offline = True
         else:
             logger.warning("⚠️ Neo4j async connect failed: unknown error")
+            logger.warning("❌ Neo4j functionality disabled for this session")
             self._disabled = True
+            self._offline = True
 
     async def close(self):
         """Close the driver connection."""
+        await self.stop_heartbeat()
+        # No pooled sessions to close
         if self._driver:
             await self._driver.close()
             self._driver = None
 
     async def run_query(self, query: str, parameters: Optional[Dict] = None) -> Optional[List[Dict]]:
-        """Execute a Cypher query."""
+        """Execute a Cypher query with transient retries and pooling."""
         if self._disabled:
             return None
         if not self._driver:
             return None
-        try:
-            async with self._driver.session(database=self._database) as session:
-                result = await session.run(query, parameters or {})
-                return [record.data() async for record in result]
-        except Exception as e:
-            logger.error(f"Neo4j async query failed: {e}")
-            return None
+        attempts = 4
+        backoffs = [0.5, 1, 2, 4]
+        last_err: Optional[Exception] = None
+        for i in range(attempts):
+            try:
+                # Always use a short-lived session
+                async with self._driver.session(database=self._database) as session:
+                    result = await session.run(query, parameters or {})
+                    return [r.data() async for r in result]
+            except Exception as e:
+                last_err = e
+                if self._is_transient_error(e):
+                    logger.warning("⚠️ Neo4j connection dropped, reinitializing driver...")
+                    self._offline = True
+                    # Verify driver before reinit
+                    try:
+                        if self._driver:
+                            await self._driver.verify_connectivity()
+                        else:
+                            await self._reinitialize_driver()
+                    except Exception:
+                        await self._reinitialize_driver()
+                    if i < attempts - 1:
+                        await asyncio.sleep(backoffs[i])
+                        continue
+                logger.error(f"Neo4j async query failed: {e}")
+                break
+        return None
 
     # =====================================================
     # 🔹 CRUD Operations - Create
@@ -201,8 +299,8 @@ class EnhancedNeo4jService:
         try:
             query = "MATCH (u:User {id: $user_id}) RETURN u"
             result = await self.run_query(query, {"user_id": user_id})
-            if result:
-                return result[0]["u"]
+            if result and isinstance(result[0], dict):
+                return result[0].get("u")
             return None
         except Exception as e:
             logger.error(f"❌ Failed to get user {user_id}: {e}")
@@ -536,45 +634,50 @@ class EnhancedNeo4jService:
             await self.connect()
         if not self._driver or self._disabled:
             return False
-            
-        try:
-            entities = facts.get("entities", [])
-            relationships = facts.get("relationships", [])
-            
-            async with self._driver.session(database=self._database) as session:
-                async with await session.begin_transaction() as tx:
-                    # Create entities
-                    for entity in entities:
-                        label = "".join(filter(str.isalnum, entity.get("label", "Thing")))
-                        name = entity.get("name")
-                        if not name:
-                            continue
-                        await tx.run(f"MERGE (n:{label} {{name: $name}})", name=name)
+        entities = facts.get("entities", [])
+        relationships = facts.get("relationships", [])
+        attempts = 3
+        backoffs = [1, 2, 4]
+        for i in range(attempts):
+            try:
+                async with self._driver.session(database=self._database) as session:
+                    async with await session.begin_transaction() as tx:
+                        # Create entities
+                        for entity in entities:
+                            label = "".join(filter(str.isalnum, entity.get("label", "Thing")))
+                            name = entity.get("name")
+                            if not name:
+                                continue
+                            await tx.run(f"MERGE (n:{label} {{name: $name}})", name=name)
 
-                    # Create relationships
-                    for rel in relationships:
-                        rel_type = "".join(filter(str.isalnum, rel.get("type", "RELATED_TO"))).upper()
-                        source_name = rel.get("source")
-                        target_name = rel.get("target")
-                        if not source_name or not target_name:
-                            continue
-                        rid = str(uuid.uuid4())
-                        await tx.run(
-                            f"""
-                            MATCH (source {{name: $source_name}}), (target {{name: $target_name}})
-                            MERGE (source)-[r:{rel_type}]->(target)
-                            ON CREATE SET r.fact_id = $rid, r.created_at = datetime()
-                            """,
-                            source_name=source_name,
-                            target_name=target_name,
-                            rid=rid,
-                        )
-                        
-            logger.info(f"✅ Added {len(entities)} entities and {len(relationships)} relationships")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to add entities and relationships: {e}")
-            return False
+                        # Create relationships
+                        for rel in relationships:
+                            rel_type = "".join(filter(str.isalnum, rel.get("type", "RELATED_TO"))).upper()
+                            source_name = rel.get("source")
+                            target_name = rel.get("target")
+                            if not source_name or not target_name:
+                                continue
+                            rid = str(uuid.uuid4())
+                            await tx.run(
+                                f"""
+                                MATCH (source {{name: $source_name}}), (target {{name: $target_name}})
+                                MERGE (source)-[r:{rel_type}]->(target)
+                                ON CREATE SET r.fact_id = $rid, r.created_at = datetime()
+                                """,
+                                source_name=source_name,
+                                target_name=target_name,
+                                rid=rid,
+                            )
+                logger.info(f"✅ Added {len(entities)} entities and {len(relationships)} relationships")
+                return True
+            except Exception as e:
+                if self._is_transient_error(e) and i < attempts - 1:
+                    logger.warning("⚠️ Neo4j connection dropped, reinitializing driver...")
+                    await self._reinitialize_driver()
+                    await asyncio.sleep(backoffs[i])
+                    continue
+                logger.error(f"❌ Failed to add entities and relationships: {e}")
+                return False
 
     # =====================================================
     # 🔹 Utility Functions
@@ -590,6 +693,42 @@ class EnhancedNeo4jService:
             return True
         except Exception:
             return False
+
+    async def _heartbeat_loop(self):
+        while True:
+            try:
+                await asyncio.sleep(self._hb_interval_secs)
+                # Verify routing/driver health, then ping
+                try:
+                    if self._driver:
+                        await self._driver.verify_connectivity()
+                    else:
+                        await self._reinitialize_driver()
+                except Exception:
+                    await self._reinitialize_driver()
+                res = await self.run_query("RETURN 1 AS heartbeat")
+                if res is not None and self._offline:
+                    logger.info("✅ Neo4j reconnected successfully.")
+                    self._offline = False
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                # Never raise from heartbeat
+                pass
+
+    async def start_heartbeat(self):
+        if self._hb_task and not self._hb_task.done():
+            return
+        self._hb_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def stop_heartbeat(self):
+        if self._hb_task and not self._hb_task.done():
+            self._hb_task.cancel()
+            try:
+                await self._hb_task
+            except Exception:
+                pass
+        self._hb_task = None
 
     async def get_database_info(self) -> Dict[str, Any]:
         """Get database information."""
@@ -628,8 +767,9 @@ class EnhancedNeo4jService:
 class LegacyNeo4jService:
     """Legacy Neo4j service for backward compatibility."""
     
-    def __init__(self):
-        self.enhanced = EnhancedNeo4jService()
+    def __init__(self, enhanced: Optional[EnhancedNeo4jService] = None):
+        # Reuse a shared enhanced instance to ensure a single driver
+        self.enhanced = enhanced or EnhancedNeo4jService()
         
     async def connect(self, retries: Optional[int] = None):
         return await self.enhanced.connect(retries)
@@ -670,6 +810,6 @@ class LegacyNeo4jService:
             # Update the fact
             return await self.enhanced.update_relationship(user_id, "HAS_FACT", fact_id, value=correction)
 
-# Create service instances
+# Create a single enhanced instance and wrap it for legacy API compatibility
 enhanced_neo4j_service = EnhancedNeo4jService()
-neo4j_service = LegacyNeo4jService()  # For backward compatibility
+neo4j_service = LegacyNeo4jService(enhanced_neo4j_service)  # For backward compatibility

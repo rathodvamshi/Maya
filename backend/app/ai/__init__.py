@@ -1,7 +1,7 @@
 """AI package holding lightweight provider routing utilities.
 
 Modules:
-- provider_manager: Gemini primary with Cohere fallback (async)
+- provider_manager: Gemini-only async convenience facade
 """
 
 __all__ = [

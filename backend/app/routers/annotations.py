@@ -133,7 +133,8 @@ def get_message_annotations(
 
 	sess = sessions.find_one({"_id": ObjectId(session_id), **user_match}, {"messages": 1})
 	if not sess:
-		raise HTTPException(status_code=404, detail="Session not found")
+		# soften to avoid noisy 404s in UI when a message was just created/deleted
+		return {"_id": message_id, "highlights": [], "annotatedHtml": ""}
 
 	msgs = sess.get("messages", [])
 	found = None
@@ -147,7 +148,8 @@ def get_message_annotations(
 			found = m
 			break
 	if not found:
-		raise HTTPException(status_code=404, detail="Message not found")
+		# return empty annotation payload instead of 404 to smooth UX
+		return {"_id": message_id, "highlights": [], "annotatedHtml": ""}
 
 	# Normalize id to string for client
 	if isinstance(found.get("_id"), ObjectId):

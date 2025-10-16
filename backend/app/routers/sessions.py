@@ -13,6 +13,7 @@ import pytz
 from app.database import get_sessions_collection, get_user_profile_collection, get_tasks_collection
 from app.security import get_current_active_user
 from app.services import ai_service, nlu, redis_cache
+from app.services.response_shaper import format_structured_reply
 from app.services import memory_store  # For fast redis-backed history when available
 from app.services.memory_coordinator import gather_memory_context, post_message_update
 from app.celery_worker import celery_app
@@ -647,13 +648,24 @@ async def send_message(session_id: str,
                 else:
                     ai_response_text = "Please reply with 'yes' to confirm, or give a new time (e.g., 7:30 PM)."
 
-            # Save messages and return early
-            ai_message = {"sender": "assistant", "text": ai_response_text, "timestamp": datetime.utcnow()}
+            # Save messages and return early (shape for consistency)
+            try:
+                shaped_text = format_structured_reply(
+                    user_message=chat_req.message,
+                    main_text=ai_response_text,
+                    profile=user_profile_doc,
+                    short_context={
+                        "last_topic": session.get("title") if isinstance(session.get("title"), str) else None,
+                    },
+                )
+            except Exception:
+                shaped_text = ai_response_text
+            ai_message = {"sender": "assistant", "text": shaped_text, "timestamp": datetime.utcnow()}
             sessions_collection.update_one(
                 {"_id": ObjectId(session_id), "$or": [{"userId": current_user["_id"]}]},
-                {"$push": {"messages": {"$each": [user_message_doc, ai_message]}}, "$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": ai_response_text[:200]}, "$inc": {"messageCount": 2}},
+                {"$push": {"messages": {"$each": [user_message_doc, ai_message]}}, "$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": shaped_text[:200]}, "$inc": {"messageCount": 2}},
             )
-            post_message_update(user_id=user_id_str, user_key=user_email, session_id=session_id, user_message=chat_req.message, ai_message=ai_response_text, state="task_management")
+            post_message_update(user_id=user_id_str, user_key=user_email, session_id=session_id, user_message=chat_req.message, ai_message=shaped_text, state="task_management")
             return ai_message
 
     # --- NLU Processing (universal) ---
@@ -924,7 +936,20 @@ async def send_message(session_id: str,
     if not isinstance(ai_response_text, str):
         ai_response_text = str(ai_response_text or "")
 
-    ai_message = {"sender": "assistant", "text": ai_response_text, "timestamp": datetime.utcnow()}
+    # Final shaping for consistency: greeting, hook, tone, suggestions
+    try:
+        shaped_text = format_structured_reply(
+            user_message=chat_req.message,
+            main_text=ai_response_text,
+            profile=user_profile_doc,
+            short_context={
+                "last_topic": session.get("title") if isinstance(session.get("title"), str) else None,
+            },
+        )
+    except Exception:
+        shaped_text = ai_response_text
+
+    ai_message = {"sender": "assistant", "text": shaped_text, "timestamp": datetime.utcnow()}
 
     # Atomic push: user message + assistant reply
     update_filter = {"_id": ObjectId(session_id), "$or": [{"userId": current_user["_id"]}]}
@@ -935,16 +960,16 @@ async def send_message(session_id: str,
             update_filter,
             {
                 "$push": {"messages": {"$each": [user_message_doc, ai_message]}},
-                "$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": ai_response_text[:200]},
+                "$set": {"updatedAt": datetime.utcnow(), "lastMessageAt": datetime.utcnow(), "lastMessage": shaped_text[:200]},
                 "$inc": {"messageCount": 2},
             },
         )
     except Exception:
         logger.exception("Failed to persist chat messages for session %s", session_id)
 
-    # Post-processing: update short-term memory & telemetry
+    # Post-processing: update short-term memory & telemetry (already async/non-blocking)
     try:
-        post_message_update(user_id=user_id_str, user_key=user_email, session_id=session_id, user_message=chat_req.message, ai_message=ai_response_text, state=None)
+        post_message_update(user_id=user_id_str, user_key=user_email, session_id=session_id, user_message=chat_req.message, ai_message=shaped_text, state=None)
     except Exception:
         logger.debug("post_message_update failed", exc_info=True)
 

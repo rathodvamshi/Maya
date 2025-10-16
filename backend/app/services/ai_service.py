@@ -333,7 +333,7 @@ def _derive_provider_order() -> List[str]:
     order_env = (settings.AI_PROVIDER_ORDER or "").strip()
     if order_env:
         items = [s.strip().lower() for s in order_env.split(",") if s.strip()]
-        return [p for p in items if p in {"gemini", "cohere", "anthropic"}]
+    return [p for p in items if p in {"gemini"}]
     
     # Default to Gemini-only for consistency with embeddings and memory system
     primary = (getattr(settings, "PRIMARY_PROVIDER", None) or "gemini").lower()
@@ -341,7 +341,7 @@ def _derive_provider_order() -> List[str]:
     
     out: List[str] = []
     for p in (primary, fallback):
-        if p in {"gemini", "cohere", "anthropic"} and p not in out:
+        if p in {"gemini"} and p not in out:
             out.append(p)
     
     # Ensure Gemini is always first for consistency
@@ -363,9 +363,9 @@ def _is_provider_available(name: str) -> bool:
     if name == "gemini":
         return bool(gemini_keys)
     if name == "cohere":
-        return bool(_s.COHERE_API_KEY)
+        return False
     if name == "anthropic":
-        return bool(_s.ANTHROPIC_API_KEY)
+        return False
     return False
 
 # =====================================================
@@ -398,18 +398,10 @@ def _try_gemini(prompt: str) -> str:
     raise RuntimeError("All Gemini API keys or models failed or returned empty responses.")
 
 def _try_cohere(prompt: str) -> str:
-    # Delegate to existing cohere service; allow model override from settings
-    try:
-        from app.services import cohere_service as _co
-        model = getattr(settings, "COHERE_MODEL", None)
-        if model:
-            return _co.generate(prompt, model=model)
-        return _co.generate(prompt)
-    except Exception as e:
-        raise RuntimeError(f"Cohere failed: {e}")
+    raise RuntimeError("Cohere support removed")
 
 def _try_anthropic(prompt: str) -> str:
-    raise RuntimeError("Anthropic is disabled. Only Gemini is supported.")
+    raise RuntimeError("Anthropic support removed")
 
 # =====================================================
 # 🔹 Error Classification Helpers
@@ -540,9 +532,9 @@ async def _invoke_provider(provider: str, prompt: str) -> str:
     if provider == "gemini":
         return await asyncio.to_thread(_try_gemini, prompt)
     if provider == "cohere":
-        return await asyncio.to_thread(_try_cohere, prompt)
+        raise RuntimeError("Cohere support removed")
     if provider == "anthropic":
-        return await asyncio.to_thread(_try_anthropic, prompt)
+        raise RuntimeError("Anthropic support removed")
     raise RuntimeError(f"Unknown provider {provider}")
 
 
@@ -1218,9 +1210,9 @@ def summarize_text(text: str) -> str:
                 if provider == "gemini":
                     return _try_gemini(summary_prompt)
                 if provider == "anthropic":
-                    return _try_anthropic(summary_prompt)
+                    raise RuntimeError("Anthropic support removed")
                 if provider == "cohere":
-                    return _try_cohere(summary_prompt)
+                    raise RuntimeError("Cohere support removed")
                 raise RuntimeError("Unknown provider")
             return _call_with_timeout(invoke, timeout_budget)
         except TimeoutError as te:
@@ -1298,9 +1290,9 @@ def structured_distillation_summary(raw_items: list[dict], char_limit: int = 150
                 if provider == "gemini":
                     return _try_gemini(prompt)
                 if provider == "anthropic":
-                    return _try_anthropic(prompt)
+                    raise RuntimeError("Anthropic support removed")
                 if provider == "cohere":
-                    return _try_cohere(prompt)
+                    raise RuntimeError("Cohere support removed")
                 raise RuntimeError("Unknown provider")
             out = _call_with_timeout(invoke, timeout_budget)
             if len(out) > char_limit:
@@ -1340,12 +1332,12 @@ def extract_facts_from_text(text: str) -> Optional[Dict[str, Any]]:
         if order_env:
             names = [n.strip().lower() for n in order_env.split(',') if n.strip()]
         else:
-            names = ["gemini", "cohere", "anthropic"]
+            names = ["gemini"]
         # Map names to callables (skip unknown silently)
         name_map = {
             "gemini": _try_gemini,
-            "cohere": _try_cohere,
-            "anthropic": _try_anthropic,
+            # "cohere": _try_cohere,
+            # "anthropic": _try_anthropic,
         }
         fact_sequence = [(n, name_map[n]) for n in names if n in name_map]
         raw_response = ""

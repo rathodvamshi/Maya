@@ -106,6 +106,45 @@ async def is_otp_verified_for_email(email: str) -> bool:
     return False
 
 # ---- API Endpoints ----
+# --- Simple Signup (test helper / convenience) ---
+@api_router.post("/signup")
+def signup(payload: CompleteRegistrationRequest):
+    """Convenience signup that bypasses OTP for test/dev.
+
+    Creates a user with the provided email/password and returns tokens.
+    In production, prefer the OTP flow: /api/auth/register -> verify -> complete.
+    """
+    email = payload.email.lower().strip()
+    password = payload.password
+    users = get_user_collection()
+    # Check existing
+    if users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    now = datetime.utcnow()
+    hashed = get_password_hash(password)
+    doc = {
+        "email": email,
+        "password": hashed,
+        "username": payload.username or email.split("@")[0],
+        "role": payload.role or "user",
+        "hobbies": payload.hobbies or [],
+        "created_at": now,
+        "last_login": now,
+        "is_active": True,
+        "verified": True,
+    }
+    res = users.insert_one(doc)
+    user_id = str(res.inserted_id)
+    access_token = create_access_token({"sub": email, "user_id": user_id})
+    refresh_token = create_refresh_token({"sub": email, "user_id": user_id})
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user_id": user_id,
+        "email": email,
+    }
+
 
 
 # --- Send OTP ---

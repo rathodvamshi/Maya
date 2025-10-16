@@ -53,16 +53,20 @@ const chatService = {
    */
   sendMessage(sessionId, message) {
     if (sessionId) {
-      // Continue existing session (correct endpoint)
-      return apiClient.post(`/chat/${sessionId}/continue`, { message }).catch(async (err) => {
+      // Prefer sessions chat endpoint to avoid 500s on /chat/:id/continue in some envs.
+      return apiClient.post(`/sessions/${sessionId}/chat`, { message }).then((chatRes) => {
+        // Normalize to ContinueChatResponse shape for consumers
+        const reply = chatRes?.data?.response_text || chatRes?.data?.text || chatRes?.data?.message || '';
+        const video = chatRes?.data?.video || null;
+        const ai_message_id = chatRes?.data?.ai_message_id || chatRes?.data?.aiMessageId || null;
+        const user_message_id = chatRes?.data?.user_message_id || chatRes?.data?.userMessageId || null;
+        return { data: { response_text: reply, video, ai_message_id, user_message_id } };
+      }).catch(async (err) => {
         const status = err?.response?.status;
-        // Fallback to sessions chat endpoint on 404 (not found) or 5xx (server-side issues)
         if (status === 404 || (typeof status === 'number' && status >= 500)) {
-          // Fallback to sessions chat endpoint
-          const res = await apiClient.post(`/sessions/${sessionId}/chat`, { message });
-          // Normalize to { response_text }
-          const reply = res?.data?.response_text || res?.data?.text || res?.data?.message || '';
-          return { data: { response_text: reply } };
+          // Fallback to chat router continue endpoint for compatibility
+          const contRes = await apiClient.post(`/chat/${sessionId}/continue`, { message });
+          return contRes;
         }
         throw err;
       });

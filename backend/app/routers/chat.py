@@ -21,13 +21,18 @@ from app.security import get_current_active_user
 from app.services import task_nlp, task_flow_service
 from app.services.neo4j_service import neo4j_service
 from app.services.memory_coordinator import gather_memory_context, post_message_update
+from app.services.realtime import realtime_bus, RTEvent
 from app.services import deterministic_extractor, profile_service
 from app.services import nlu
 from app.services import llm_brain
 from app.services import nlg_engine
 from app.services import memory_manager
+from app.services import redis_service
+from app.services.telemetry import Stopwatch, log_pipeline_summary, log_provider_usage, log_pipeline_metrics
+from app.services import metrics as _metrics
 import os, json
 from app.services.ai_service import get_response as ai_get_response
+from app.services import ai_service
 import re
 import httpx
 import os
@@ -1045,8 +1050,11 @@ async def handle_chat_message(
     if task_nlp.detect_task_intent(message):
         try:
             # Get user timezone from profile
-            profile = context.get("profile") or {}
-            user_tz = profile.get("timezone") if isinstance(profile, dict) else None
+            try:
+                prof = profile_service.get_profile(user_id)
+            except Exception:
+                prof = {}
+            user_tz = prof.get("timezone") if isinstance(prof, dict) else None
             
             # Handle task intent with Redis-backed confirmation flow
             flow_result = await task_flow_service.handle_task_intent(message, user_id, user_tz)
@@ -1057,18 +1065,16 @@ async def handle_chat_message(
                 confirmation_message = flow_result["message"]
                 
                 # Log the creation
-            asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
-            asyncio.create_task(log_message(session_id, "assistant", confirmation_message, chat_log_collection))
-                
+                asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
+                asyncio.create_task(log_message(session_id, "assistant", confirmation_message, chat_log_collection))
                 return confirmation_message
             elif flow_result.get("needs_response"):
                 # Need clarification or confirmation
                 clarification_message = flow_result["message"]
                 
                 # Log the clarification request
-            asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
-            asyncio.create_task(log_message(session_id, "assistant", clarification_message, chat_log_collection))
-                
+                asyncio.create_task(log_message(session_id, "user", message, chat_log_collection))
+                asyncio.create_task(log_message(session_id, "assistant", clarification_message, chat_log_collection))
                 return clarification_message
         except Exception as e:
             logger.exception(f"Task flow handling failed: {e}")
@@ -1202,20 +1208,27 @@ async def start_new_chat(
     req_message: str = request.message  # type: ignore[attr-defined]
     # Fire-and-forget NLU (non-blocking) and chain Brain planning
     nlu_future = None
+    sw_total = Stopwatch()
+    timings: Dict[str, int] = {}
+    failures: list[str] = []
     try:
+        sw_nlu = Stopwatch()
         nlu_future = asyncio.create_task(nlu.extract_intent_entities(message=req_message, session_id=session_id, user_id=user_id))
         # also log NLU in background
         asyncio.create_task(_nlu_and_log(activity_logs, user_id, session_id, req_message))
+        # we record later when awaited; if never awaited, we skip
     except Exception:
         nlu_future = None
 
     brain_future = None
     try:
         async def _chain_pipeline():
+            sw_brain = Stopwatch()
             nlu_result = None
             try:
                 if nlu_future is not None:
                     nlu_result = await nlu_future
+                    timings["nlu_ms"] = timings.get("nlu_ms", 0) or sw_nlu.ms() if 'sw_nlu' in locals() else 0
             except Exception:
                 nlu_result = None
             return await _brain_nlg_pipeline(
@@ -1291,6 +1304,39 @@ async def start_new_chat(
             except Exception:
                 pass
 
+            # Emit realtime events (message appended, session updated)
+            try:
+                await realtime_bus.emit(RTEvent(type="message.appended", user_id=user_id, payload={
+                    "sessionId": session_id,
+                    "messages": [
+                        {
+                            "id": str(user_doc2.get("_id")) if user_doc2.get("_id") else None,
+                            "_id": str(user_doc2.get("_id")) if user_doc2.get("_id") else None,
+                            "role": "user",
+                            "sender": "user",
+                            "text": req_message,
+                            "content": req_message,
+                            "created_at": datetime.utcnow().isoformat(),
+                        },
+                        {
+                            "id": str(ai_doc2.get("_id")) if ai_doc2.get("_id") else None,
+                            "_id": str(ai_doc2.get("_id")) if ai_doc2.get("_id") else None,
+                            "role": "assistant",
+                            "sender": "assistant",
+                            "text": resp_txt,
+                            "content": resp_txt,
+                            "created_at": datetime.utcnow().isoformat(),
+                        },
+                    ],
+                }))
+                await realtime_bus.emit(RTEvent(type="session.updated", user_id=user_id, payload={
+                    "id": session_id,
+                    "lastMessage": resp_txt[:200],
+                    "updatedAt": datetime.utcnow().isoformat(),
+                }))
+            except Exception:
+                pass
+
             return NewChatResponse(
                 session_id=session_id,
                 response_text=resp_txt,
@@ -1357,12 +1403,74 @@ async def start_new_chat(
         except Exception:
             pass
 
-    return NewChatResponse(
+    resp = NewChatResponse(
         session_id=session_id,
         response_text=response_text,
         ai_message_id=str(ai_mid) if ai_mid else None,
         user_message_id=str(user_mid) if user_mid else None,
     )
+
+    # Telemetry: log pipeline timings and success snapshot (best-effort)
+    try:
+        timings.setdefault("nlu_ms", 0)
+        timings.setdefault("brain_ms", 0)
+        timings.setdefault("memory_ms", 0)
+        timings.setdefault("nlg_ms", 0)
+        timings["total_ms"] = sw_total.ms()
+        # Record histogram
+        for k, v in timings.items():
+            if v:
+                _metrics.record_hist(f"pipeline.{k}", v)
+        # Provider summary snapshot (best-effort)
+        asyncio.create_task(log_pipeline_summary(user_id, session_id, {
+            "timings": timings,
+            "ok": True,
+        }))
+        asyncio.create_task(log_pipeline_metrics(
+            pipeline_span="chat_session",
+            user_id=user_id,
+            session_id=session_id,
+            timings=timings,
+            success_rate=1.0,
+            failures=failures,
+        ))
+    except Exception:
+        pass
+
+    # Emit realtime events for normal path
+    try:
+        await realtime_bus.emit(RTEvent(type="message.appended", user_id=user_id, payload={
+            "sessionId": session_id,
+            "messages": [
+                {
+                    "id": str(user_mid) if user_mid else None,
+                    "_id": str(user_mid) if user_mid else None,
+                    "role": "user",
+                    "sender": "user",
+                    "text": req_message,
+                    "content": req_message,
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+                {
+                    "id": str(ai_mid) if ai_mid else None,
+                    "_id": str(ai_mid) if ai_mid else None,
+                    "role": "assistant",
+                    "sender": "assistant",
+                    "text": response_text,
+                    "content": response_text,
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+            ],
+        }))
+        await realtime_bus.emit(RTEvent(type="session.updated", user_id=user_id, payload={
+            "id": session_id,
+            "lastMessage": response_text[:200],
+            "updatedAt": datetime.utcnow().isoformat(),
+        }))
+    except Exception:
+        pass
+
+    return resp
 
 @router.post("/{session_id}/continue", response_model=ContinueChatResponse)
 async def continue_chat(
@@ -1377,7 +1485,11 @@ async def continue_chat(
     """
     Continues an existing chat session.
     """
-    user_id = str(current_user["_id"])
+    user_id = str(current_user.get("_id") or current_user.get("user_id") or current_user.get("userId"))
+    req_message: str = (request.message or "").strip()
+    if not req_message:
+        # Fast validation instead of raising an internal error later
+        raise HTTPException(status_code=400, detail="Message text is required")
 
     # Verify session exists and belongs to the user (support ObjectId or string userId)
     try:
@@ -1400,6 +1512,7 @@ async def continue_chat(
                 {"$set": {"title": new_title, "updatedAt": datetime.utcnow()}},
             )
     except Exception:
+        # non-fatal
         pass
 
     # First, attempt fast-path video handling or resolution of pending clarification
@@ -1412,8 +1525,8 @@ async def continue_chat(
             except Exception:
                 cur = None
             if cur and cur.get("videoId"):
-            asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
-            asyncio.create_task(log_message(session_id, "assistant", "🔁 Replaying your requested video", chat_log))
+                asyncio.create_task(log_message(session_id, "user", req_message, chat_log))
+                asyncio.create_task(log_message(session_id, "assistant", "🔁 Replaying your requested video", chat_log))
                 return ContinueChatResponse(response_text="🔁 Replaying your requested video", video={**cur, "autoplay": True})
 
         # If there's a pending clarification, merge with new message
@@ -1511,6 +1624,39 @@ async def continue_chat(
                 user_mid2 = m.get("_id")
     except Exception:
         pass
+    # Emit realtime events for continue path
+    try:
+        await realtime_bus.emit(RTEvent(type="message.appended", user_id=user_id, payload={
+            "sessionId": session_id,
+            "messages": [
+                {
+                    "id": str(user_mid2) if user_mid2 else None,
+                    "_id": str(user_mid2) if user_mid2 else None,
+                    "role": "user",
+                    "sender": "user",
+                    "text": req_message,
+                    "content": req_message,
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+                {
+                    "id": str(ai_mid2) if ai_mid2 else None,
+                    "_id": str(ai_mid2) if ai_mid2 else None,
+                    "role": "assistant",
+                    "sender": "assistant",
+                    "text": response_text,
+                    "content": response_text,
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+            ],
+        }))
+        await realtime_bus.emit(RTEvent(type="session.updated", user_id=user_id, payload={
+            "id": session_id,
+            "lastMessage": response_text[:200],
+            "updatedAt": datetime.utcnow().isoformat(),
+        }))
+    except Exception:
+        pass
+
     return ContinueChatResponse(
         response_text=response_text,
         ai_message_id=str(ai_mid2) if ai_mid2 else None,

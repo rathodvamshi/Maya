@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Bot, Minimize2, Maximize2, ExternalLink, X as XIcon, Mic as MicIcon, Send as SendIcon, Copy as CopyIcon, Share2, ThumbsUp, ThumbsDown, Sparkles, BookOpen, Languages } from 'lucide-react';
 import miniAgentService from '../services/miniAgentService';
 import '../styles/MiniAgent.css';
 
@@ -147,6 +148,13 @@ export default function MiniAgentPanel({ thread, selectedText, onClose }) {
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
+  const suggestions = [
+    { key: 'summ', label: 'Summarize', icon: Sparkles, build: (t) => `Summarize this in 3 concise bullets:\n\n${t || activeSnippetText}` },
+    { key: 'explain', label: 'Explain', icon: BookOpen, build: (t) => `Explain the key ideas simply:\n\n${t || activeSnippetText}` },
+    { key: 'translate', label: 'Translate', icon: Languages, build: (t) => `Translate to English:\n\n${t || activeSnippetText}` },
+    { key: 'tasks', label: 'Create Task', icon: Sparkles, build: (t) => `Create a clear, actionable task from this:\n\n${t || activeSnippetText}` },
+  ];
+
   // Auto-scroll to bottom when messages update or streaming progresses
   useEffect(() => {
     if (!messagesWrapRef.current) return;
@@ -282,45 +290,71 @@ export default function MiniAgentPanel({ thread, selectedText, onClose }) {
   return (
     <div ref={rootRef} className="mini-agent-panel" role="dialog" aria-label="Mini Agent"
          style={{ position: 'fixed', left: mode==='max'?0:pos.x, top: mode==='max'?0:pos.y, width: mode==='max'? 'min(100vw, 1100px)': size.width, height: mode==='max'? 'min(100vh, 80vh)': size.height, zIndex: 10030 }} onKeyDown={onKeyDown}>
-  <div className="mini-agent-header" onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
+      <div className="mini-agent-header" onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
         <div className="mini-title">
+          <span className="mini-header-icon"><Bot size={16} /></span>
           <strong>Mini Agent</strong>
-          <span className="mini-sub"> attached to this message</span>
+          <span className="mini-sub">attached to this message</span>
         </div>
         <div className="mini-controls">
-          <button title="Minimize" aria-label="Minimize" onClick={() => setMode((m) => (m === 'min' ? 'open' : 'min'))}>{mode === 'min' ? '▢' : '—'}</button>
-          <button title="Expand" aria-label="Expand" onClick={() => setMode((m)=> (m==='max'?'open':'max'))}>{mode==='max'?'🗗':'🗖'}</button>
-          <button title="Detach" aria-label="Detach" onClick={() => window.open('#mini-agent', '_blank')}>⧉</button>
-          <button title="Close" aria-label="Close" onClick={onClose}>×</button>
+          <button className="mini-icon-btn" title={mode==='min'?'Restore':'Minimize'} aria-label="Minimize" onClick={() => setMode((m) => (m === 'min' ? 'open' : 'min'))}>
+            <Minimize2 size={16} />
+          </button>
+          <button className="mini-icon-btn" title={mode==='max'?'Restore':'Expand'} aria-label="Expand" onClick={() => setMode((m)=> (m==='max'?'open':'max'))}>
+            <Maximize2 size={16} />
+          </button>
+          <button className="mini-icon-btn" title="Open in new tab" aria-label="Detach" onClick={() => window.open('#mini-agent', '_blank')}>
+            <ExternalLink size={16} />
+          </button>
+          <button className="mini-icon-btn" title="Close" aria-label="Close" onClick={onClose}>
+            <XIcon size={16} />
+          </button>
         </div>
       </div>
       <div className="mini-body" style={{ display: mode === 'min' ? 'none' : 'flex' }}>
-        {activeSnippetText && (
-          <div className="mini-snippet-pill" title={activeSnippetText}>
-            <span className="label">Snippet</span>
-            <span className="text">{activeSnippetText.length > 70 ? activeSnippetText.slice(0,70) + '…' : activeSnippetText}</span>
+        {Boolean(activeSnippetText) && (
+          <div className="mini-quick-actions top" aria-label="Quick actions">
+            {suggestions.map((s) => (
+              <button key={s.key} className="mini-chip sm" onClick={() => { const prompt = s.build(value); setValue(prompt); setTimeout(() => send(), 0); }} title={s.label}>
+                <s.icon size={12} />
+                <span>{s.label}</span>
+              </button>
+            ))}
           </div>
         )}
         <div ref={messagesWrapRef} className="mini-messages" aria-live="polite">
           {messages.map((m) => (
-            <div key={m.mini_message_id} className={`mini-msg ${m.role}`}>
+            <div key={m.mini_message_id} className={`mini-msg ${m.role} enter`}>
               <div className="msg-body">{m.content}</div>
               <div className="msg-actions">
                 {m.role === 'assistant' ? (
                   <>
-                    <button title="Copy" aria-label="Copy" onClick={() => navigator.clipboard.writeText(m.content||'')}>📋</button>
-                    <button title="Share" aria-label="Share" onClick={async ()=>{
+                    <button className="mini-icon-btn" title="Copy" aria-label="Copy" onClick={() => navigator.clipboard.writeText(m.content||'')}>
+                      <CopyIcon size={14} />
+                    </button>
+                    <button className="mini-icon-btn" title="Share" aria-label="Share" onClick={async ()=>{
                       try {
                         if (navigator.share) await navigator.share({ text: m.content||'' });
                         else navigator.clipboard.writeText(m.content||'');
                       } catch {}
-                    }}>🔗</button>
-                    <button title="Feedback" aria-label="Feedback" onClick={()=>alert('Feedback modal TBD')}>💬</button>
+                    }}>
+                      <Share2 size={14} />
+                    </button>
+                    <button className="mini-icon-btn" title="Good" aria-label="Good" onClick={()=>{/* TODO: hook feedback */}}>
+                      <ThumbsUp size={14} />
+                    </button>
+                    <button className="mini-icon-btn" title="Poor" aria-label="Poor" onClick={()=>{/* TODO: hook feedback */}}>
+                      <ThumbsDown size={14} />
+                    </button>
                   </>
                 ) : (
                   <>
-                    <button title="Copy" aria-label="Copy" onClick={() => navigator.clipboard.writeText(m.content||'')}>📋</button>
-                    <button title="Edit" aria-label="Edit" onClick={()=> setValue(m.content||'') }>✏️</button>
+                    <button className="mini-icon-btn" title="Copy" aria-label="Copy" onClick={() => navigator.clipboard.writeText(m.content||'')}>
+                      <CopyIcon size={14} />
+                    </button>
+                    <button className="mini-icon-btn" title="Edit" aria-label="Edit" onClick={()=> setValue(m.content||'') }>
+                      <BookOpen size={14} />
+                    </button>
                   </>
                 )}
               </div>
@@ -340,12 +374,20 @@ export default function MiniAgentPanel({ thread, selectedText, onClose }) {
           )}
           <div ref={messagesEndRef} />
         </div>
+        {activeSnippetText && (
+          <div className="mini-snippet-pill" title={activeSnippetText}>
+            <span className="label">Snippet</span>
+            <span className="text">{activeSnippetText.length > 70 ? activeSnippetText.slice(0,70) + '…' : activeSnippetText}</span>
+          </div>
+        )}
         <div className="mini-input">
           <textarea ref={inputRef} aria-label="Mini agent input" value={value} onChange={(e) => setValue(e.target.value)} rows={3} placeholder="Ask a quick question about the snippet…" />
           <div className="mini-input-icons">
-            <button className={`mic ${micOn?'on':''}`} title="Mic" aria-label="Mic" onClick={toggleMic}>{micOn?'🎙️':'🎤'}</button>
+            <button className={`mic ${micOn?'on':''}`} title="Mic" aria-label="Mic" onClick={toggleMic}><MicIcon size={16} /></button>
           </div>
-          <button onClick={send} aria-label="Send" disabled={sending || streaming}>{(sending||streaming) ? 'Sending…' : 'Send'}</button>
+          <button onClick={send} aria-label="Send" disabled={sending || streaming} title="Send (Enter)">
+            {(sending||streaming) ? 'Sending…' : (<><SendIcon size={16} /> <span style={{ marginLeft: 6 }}>Send</span></>)}
+          </button>
           {(streaming) && <button className="mini-stop" onClick={stopStream} aria-label="Stop">■</button>}
         </div>
       </div>

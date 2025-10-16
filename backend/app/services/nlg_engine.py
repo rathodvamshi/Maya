@@ -126,6 +126,8 @@ async def _call_gemini_text(prompt: str, provider_id: str) -> Optional[str]:
     }
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
+            import time as _t
+            _t0 = _t.time()
             resp = await client.post(url, headers=_headers(), params=params, json=body)
             resp.raise_for_status()
             data = resp.json()
@@ -138,9 +140,22 @@ async def _call_gemini_text(prompt: str, provider_id: str) -> Optional[str]:
                         txt = parts[0].get("text")
             except Exception:
                 txt = None
+            try:
+                from app.services import metrics as _m
+                from app.services.telemetry import log_provider_usage
+                lat_ms = int((_t.time() - _t0) * 1000)
+                _m.record_hist("provider.latency.gemini", lat_ms)
+                await log_provider_usage("gemini", "nlg", lat_ms, True)
+            except Exception:
+                pass
             return txt
     except Exception as e:
         logger.debug("Gemini text call failed via %s: %s", provider_id, e)
+        try:
+            from app.services.telemetry import log_provider_usage
+            await log_provider_usage("gemini", "nlg", 0, False)
+        except Exception:
+            pass
         return None
 
 

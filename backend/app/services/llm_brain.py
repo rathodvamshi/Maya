@@ -30,6 +30,7 @@ from app.services import pinecone_service
 from app.services.neo4j_service import neo4j_service
 from app.database import db_client
 from app.services import nlu as nlu_service
+from app.services import task_service
 
 logger = logging.getLogger(__name__)
 
@@ -402,19 +403,14 @@ async def plan_actions(
                     due = e["due_date"].get("value")
                 else:
                     due = e.get("due_date") or e.get("datetime")
-
-                tasks_col = db_client.get_tasks_collection()
-                if tasks_col:
-                    doc = {
-                        "user_id": user_id,
-                        "session_id": session_id,
-                        "title": title or (hint_text[:80] if hint_text else "Task"),
-                        "run_at": due,
-                        "payload": {"entities": entities or {}},
-                        "status": "pending",
-                        "created_at": datetime.utcnow(),
-                    }
-                    await run_in_threadpool(tasks_col.insert_one, doc)
+                # Use unified IST-aware task service to write to global + user profile
+                ttl = title or (hint_text[:80] if hint_text else "Task")
+                await task_service.create_user_task(
+                    user_id,
+                    ttl,
+                    due,
+                    {"entities": entities or {}, "source": "llm_brain"},
+                )
         except Exception:
             try:
                 logger.debug("LLM_BRAIN task_side_effects failed", exc_info=True)

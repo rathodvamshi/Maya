@@ -40,7 +40,7 @@ user_profiles | facts[{key,value}] (ad‑hoc) | Only used by sessions router fac
 Neo4j: `(:User {id, name})` + dynamic nodes + typed relationships with optional `fact_id`.
 
 Pinecone Vectors:
-- Index: `maya2-session-memory` (dimension 768)
+- Index: `maya` (dimension 1024)
 - Message vector id: `{user_id}:{session_id}:{timestamp}:{role}`
 - Metadata: user_id, session_id, role, timestamp, text, kind=message
 

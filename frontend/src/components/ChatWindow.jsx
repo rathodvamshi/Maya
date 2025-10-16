@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Send, Mic, Plus, Camera, Image as ImageIcon, File, Copy, ThumbsUp, ThumbsDown, Share2, Edit2, X, ArrowDown, Check, Square, Highlighter, Play } from 'lucide-react';
+import { Send, Mic, Plus, Camera, Image as ImageIcon, File, Copy, ThumbsUp, ThumbsDown, Share2, Edit2, X, ArrowDown, Check, Square, Highlighter, Play, Bot } from 'lucide-react';
 import '../styles/ChatWindow.css';
 import ThinkingProcess from './ThinkingProcess';
 import chatService from '../services/chatService';
@@ -7,6 +7,8 @@ import sessionService from '../services/sessionService';
 import AIMessage from './AIMessage';
 import VideoEmbed from './VideoEmbed';
 import highlightService from '../services/highlightService';
+import sessionCache from '../services/sessionCache';
+import realtime from '../services/realtimeClient';
 // No client-side YouTube auto-embed: we rely on backend-provided video payloads only.
 
 
@@ -18,7 +20,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
   const [isSending, setIsSending] = useState(false);
   const [isFetching, setIsFetching] = useState(false); // loading overlay for fetch/new chat
   const [loaderText, setLoaderText] = useState('Fetching your conversation…');
-  const [error, setError] = useState(''); // retained for future use, not rendered as top banner
+  const [, setError] = useState(''); // retained setter only; no top banner
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -28,6 +30,9 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
   const [copiedMessageId, setCopiedMessageId] = useState(null);
   const [speechState, setSpeechState] = useState({ messageId: null, isPlaying: false });
   const [showToast, setShowToast] = useState({ show: false, message: '' });
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
+  const topSentinelRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -38,12 +43,17 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
   // Map message.id -> ref for AIMessage instances so we can open highlights panel from action bar
   const aiMessageRefs = useRef({});
   const [messageIndicators, setMessageIndicators] = useState({}); // id -> {hasMini, hasHighlights}
+  const currentSessionIdRef = useRef(null);
 
   const quote = 'The future belongs to those who believe in the beauty of their dreams.';
 
   // In-memory cache for session histories to make switching instant
-  const historyCacheRef = useRef(new Map()); // sid -> { messages, ts }
+  const historyCacheRef = useRef(new Map()); // legacy local cache (kept for hot state); global cache used via sessionCache
   const currentLoadAbortRef = useRef(null);
+
+  const scrollToBottom = useCallback((behavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,13 +66,25 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
       const ac = new AbortController();
       currentLoadAbortRef.current = ac;
       try {
+  // Immediately bind the selected session id to avoid races with send()
+  setSessionId(sid);
+  currentSessionIdRef.current = sid;
         // Serve instantly from cache if present
-        const cached = historyCacheRef.current.get(sid);
-        if (cached && Array.isArray(cached.messages)) {
-          setMessages(cached.messages);
-          setSessionId(sid);
-          // Soft hide loader quickly for a no-glitch effect
-          setTimeout(() => { if (!cancelled) setIsFetching(false); }, 50);
+        // 1) Serve instantly from global session cache if present
+        const globalCached = sessionCache.get(sid);
+        if (globalCached && Array.isArray(globalCached.messages)) {
+          setMessages(globalCached.messages);
+          setHasMore(!!globalCached.hasMore);
+          setNextOffset(typeof globalCached.offset === 'number' ? globalCached.offset : 0);
+          // Soft hide loader for instant feel
+          setTimeout(() => { if (!cancelled) setIsFetching(false); }, 40);
+        } else {
+          // Fallback to ephemeral cache (component-level) if any
+          const cached = historyCacheRef.current.get(sid);
+          if (cached && Array.isArray(cached.messages)) {
+            setMessages(cached.messages);
+            setTimeout(() => { if (!cancelled) setIsFetching(false); }, 40);
+          }
         }
         // Prefer chatService.getSessionHistory if available on backend; fallback to sessionService.getSessionMessages
         let res;
@@ -91,10 +113,13 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
           }
         };
 
+        const isLikelyObjectId = (v) => typeof v === 'string' && /^[a-f\d]{24}$/i.test(v);
         let normalized = msgs.map((m, idx) => {
           const dmeta = withDay(m.created_at);
+          const backendId = (typeof m._id === 'string' && m._id) || (typeof m.id === 'string' && m.id) || null;
           return ({
           id: m.id || m._id || `${sid}-${idx}`,
+          backendId,
           type: (m.sender === 'assistant' || m.role === 'assistant' || m.role === 'ai') ? 'ai' : 'user',
           content: m.content || m.text || m.message || '',
           annotatedHtml: m.annotatedHtml || null,
@@ -108,29 +133,53 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
         // Hydrate missing annotations by fetching per-message from backend (best-effort)
         try {
           const fetches = normalized
-            .filter((m) => m.type === 'ai' && !m.annotatedHtml && m.id)
+            .filter((m) => m.type === 'ai' && !m.annotatedHtml && isLikelyObjectId(m.backendId) && isLikelyObjectId(sid))
             .map(async (m) => {
               try {
-                const r = await highlightService.getMessage(sid, m.id);
+                const r = await highlightService.getMessage(sid, m.backendId);
                 const d = r?.data;
                 if (d?.annotatedHtml) {
-                  return { id: m.id, annotatedHtml: d.annotatedHtml, highlights: Array.isArray(d.highlights) ? d.highlights : [] };
+                  return { backendId: m.backendId, annotatedHtml: d.annotatedHtml, highlights: Array.isArray(d.highlights) ? d.highlights : [] };
                 }
               } catch {}
               return null;
             });
           const results = await Promise.all(fetches);
           const byId = new Map();
-          results.forEach((r) => { if (r && r.id) byId.set(r.id, r); });
+          results.forEach((r) => { if (r && r.backendId) byId.set(r.backendId, r); });
           if (byId.size > 0) {
-            normalized = normalized.map((m) => byId.has(m.id) ? { ...m, ...byId.get(m.id) } : m);
+            normalized = normalized.map((m) => byId.has(m.backendId) ? { ...m, ...byId.get(m.backendId) } : m);
           }
         } catch {}
         if (!cancelled) {
-          setMessages(normalized);
-          setSessionId(sid);
-          // Update cache after successful load
-          historyCacheRef.current.set(sid, { messages: normalized, ts: Date.now() });
+          // Merge with any messages that might have been added while fetching (avoid wiping optimistic ones)
+          setMessages((prev) => {
+            // Build a map by message signature (id or content+type+timestamp) to de-dup
+            const keyOf = (m) => m.id || `${m.type}|${m.content}|${m.timestamp}`;
+            const seen = new Set();
+            const merged = [];
+            // First, older (fetched, which are chronological), then existing that aren't present
+            for (const m of normalized) {
+              const k = keyOf(m);
+              if (!seen.has(k)) { seen.add(k); merged.push(m); }
+            }
+            for (const m of prev) {
+              const k = keyOf(m);
+              if (!seen.has(k)) { seen.add(k); merged.push(m); }
+            }
+            return merged;
+          });
+          const total = typeof data?.total === 'number' ? data.total : (data?.totalMessages || normalized.length);
+          const has_more = !!(data?.has_more || (total > normalized.length));
+          setHasMore(has_more);
+          setNextOffset(typeof data?.offset === 'number' ? data.offset + (data?.limit || normalized.length) : normalized.length);
+          // Update both local and global caches
+          // Reuse merged view for caches to keep parity with UI
+          const mergedForCache = (Array.isArray(normalized) ? normalized : []).slice();
+          historyCacheRef.current.set(sid, { messages: mergedForCache, ts: Date.now() });
+          sessionCache.set(sid, { messages: mergedForCache, total, hasMore: has_more, limit: data?.limit, offset: data?.offset });
+          // Smooth scroll to bottom once after load
+          requestAnimationFrame(() => scrollToBottom('auto'));
         }
       } catch (e) {
         if (!cancelled) {
@@ -154,11 +203,13 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
 
     if (chatId && typeof chatId === 'string' && chatId.trim() !== '') {
       // Treat chatId as a backend session id
+      currentSessionIdRef.current = chatId;
       loadHistory(chatId);
     } else {
       // New chat created: briefly show a setup loader to make the transition feel intentional
       setMessages([]);
-      setSessionId(null);
+  setSessionId(null);
+  currentSessionIdRef.current = null;
       setError('');
       setLoaderText('Setting up your chat…');
       setIsFetching(true);
@@ -169,15 +220,76 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
     }
 
     return () => { cancelled = true; try { currentLoadAbortRef.current?.abort?.(); } catch {} };
-  }, [chatId]);
-
-  const scrollToBottom = useCallback((behavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  }, []);
+  }, [chatId, scrollToBottom]);
 
   useEffect(() => {
     scrollToBottom('smooth');
   }, [messages, scrollToBottom]);
+
+  // Keep a ref of the latest active session id for realtime handler comparisons
+  useEffect(() => {
+    currentSessionIdRef.current = sessionId || (typeof chatId === 'string' && chatId.trim() ? chatId : null);
+  }, [sessionId, chatId]);
+
+  // Realtime: append incoming messages for the active session
+  useEffect(() => {
+    const off = realtime.on('message.appended', (payload) => {
+      try {
+        const sid = payload?.sessionId;
+        const active = currentSessionIdRef.current;
+        if (!sid || !active || sid !== active) return;
+        const arr = Array.isArray(payload?.messages) ? payload.messages : [];
+        if (!arr.length) return;
+        const now = new Date();
+        const normalize = (m, idx) => {
+          const content = m.content || m.text || '';
+          const role = (m.role || m.sender || '').toLowerCase();
+          const type = role === 'assistant' || role === 'ai' ? 'ai' : 'user';
+          const created = m.created_at ? new Date(m.created_at) : now;
+          const dk = created.toISOString().slice(0,10);
+          const dayLabel = (() => {
+            const today = new Date();
+            const y = new Date(today); y.setDate(today.getDate() - 1);
+            if (created.toDateString() === today.toDateString()) return 'Today';
+            if (created.toDateString() === y.toDateString()) return 'Yesterday';
+            return created.toLocaleDateString();
+          })();
+          const id = m.id || m._id || `${sid}-sse-${Date.now()}-${idx}`;
+          return {
+            id,
+            type,
+            content,
+            timestamp: created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            dayKey: dk,
+            dayLabel,
+            status: type === 'user' ? 'delivered' : undefined,
+          };
+        };
+        const inc = arr.map(normalize).filter(x => x.content);
+        if (!inc.length) return;
+        setMessages((prev) => {
+          const seen = new Set(prev.map(m => m.id));
+          // Also create a lightweight signature to avoid dupes when ids differ but content identical in immediate succession
+          const sigSeen = new Set(prev.map(m => `${m.type}|${m.content}`));
+          const merged = [...prev];
+          for (const m of inc) {
+            const sig = `${m.type}|${m.content}`;
+            if (!seen.has(m.id) && !sigSeen.has(sig)) {
+              seen.add(m.id);
+              sigSeen.add(sig);
+              merged.push(m);
+            }
+          }
+          return merged;
+        });
+        // Update cache
+        try { sessionCache.append(sid, inc); } catch {}
+        // Nudge scroll
+        requestAnimationFrame(() => scrollToBottom('auto'));
+      } catch {}
+    });
+    return () => { try { off?.(); } catch {} };
+  }, [scrollToBottom]);
 
   // Broadcast whether the current chat window has any messages so Sidebar can gate "New Chat"
   useEffect(() => {
@@ -202,6 +314,78 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
     return () => el.removeEventListener('scroll', onScroll);
   }, [messages.length]);
 
+  // Lazy load older messages when the user scrolls to the top sentinel
+  useEffect(() => {
+    if (!sessionId) return;
+    const el = messagesContainerRef.current;
+    const sentinel = topSentinelRef.current;
+    if (!el || !sentinel) return;
+    let loadingOlder = false;
+
+    const io = new IntersectionObserver(async (entries) => {
+      const e = entries[0];
+      if (!e || !e.isIntersecting) return;
+      if (loadingOlder || !hasMore) return;
+      loadingOlder = true;
+      try {
+        const prevScrollHeight = el.scrollHeight;
+        // Determine next page using offset; backend returns slice by offset,limit
+        const limit = 100;
+        const offset = nextOffset;
+        let res;
+        try {
+          res = await chatService.getSessionHistory(sessionId, { limit, offset });
+        } catch {
+          res = await sessionService.getSessionMessages(sessionId, { limit, offset });
+        }
+        const data = res?.data;
+        const raw = Array.isArray(data?.messages) ? data.messages : [];
+        const older = raw.map((m, idx) => {
+          const d = m.created_at ? new Date(m.created_at) : new Date();
+          const now = new Date();
+          const yest = new Date(now); yest.setDate(now.getDate() - 1);
+          const isToday = d.toDateString() === now.toDateString();
+          const isY = d.toDateString() === yest.toDateString();
+          const dayLabel = isToday ? 'Today' : isY ? 'Yesterday' : d.toLocaleDateString();
+          return {
+            id: m.id || m._id || `${sessionId}-${offset + idx}`,
+            type: (m.sender === 'assistant' || m.role === 'assistant' || m.role === 'ai') ? 'ai' : 'user',
+            content: m.content || m.text || m.message || '',
+            annotatedHtml: m.annotatedHtml || null,
+            highlights: Array.isArray(m.highlights) ? m.highlights : [],
+            timestamp: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            dayKey: d.toISOString().slice(0,10),
+            dayLabel,
+            status: m.status || (m.sender ? 'delivered' : 'sent'),
+          };
+        }).filter(m => m.content);
+        if (older.length) {
+          // Prepend and maintain scroll position
+          setMessages(prev => [...older, ...prev]);
+          sessionCache.prepend(sessionId, older, offset + older.length);
+          setNextOffset(offset + (data?.limit || older.length));
+          setHasMore(!!data?.has_more && (data.total > offset + older.length));
+          // Restore scroll position so content doesn't jump
+          requestAnimationFrame(() => {
+            const newScrollHeight = el.scrollHeight;
+            const delta = newScrollHeight - prevScrollHeight;
+            el.scrollTop = el.scrollTop + delta;
+          });
+        } else {
+          setHasMore(false);
+        }
+      } catch (err) {
+        // best-effort: stop trying further
+        setHasMore(false);
+      } finally {
+        loadingOlder = false;
+      }
+    }, { root: el, threshold: 0 });
+
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [sessionId, hasMore, nextOffset]);
+
   const handleSend = async () => {
   const content = inputValue.trim();
     if (!content && attachments.length === 0) return;
@@ -218,6 +402,13 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
       attachments: attachments.length > 0 ? [...attachments] : undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
+    // Optimistically update cache with the user message if session id is known
+    try {
+      const sidForCache = sessionId || (typeof chatId === 'string' && chatId.trim() ? chatId : null);
+      if (sidForCache) {
+        sessionCache.append(sidForCache, [userMsg]);
+      }
+    } catch {}
     setInputValue('');
     setAttachments([]);
     const sentId = userMsg.id;
@@ -230,8 +421,10 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
     // No client-side auto-embed; wait for backend to respond with a video payload
 
     try {
-  let resp;
-      if (!sessionId) {
+      let resp;
+      // Use the most up-to-date session id: prefer internal state, else the active chatId prop
+      const effectiveSessionId = sessionId || (typeof chatId === 'string' && chatId.trim() ? chatId : null);
+      if (!effectiveSessionId) {
         // Start a new backend chat session with the first message
         resp = await chatService.startNewChat(content);
         const data = resp?.data || {};
@@ -245,11 +438,16 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
             window.dispatchEvent(new CustomEvent('maya:active-session', { detail: { id: sid } }));
             window.dispatchEvent(new CustomEvent('maya:sessions:refresh'));
           } catch {}
+          // Seed cache for the new session with the user message we just sent
+          try { sessionCache.append(sid, [userMsg]); } catch {}
         }
         if (reply) {
           const info = extractReminderInfoFromReply(reply);
           if (info) {
             showToastNotification(`Reminder set: ${info.title} at ${info.when}`);
+            // Notify other views (Tasks sidebar/page) to refresh immediately
+            try { window.dispatchEvent(new CustomEvent('maya:tasks-updated')); } catch {}
+            try { const bc = new BroadcastChannel('maya_tasks'); bc.postMessage({ type: 'created', ts: Date.now() }); bc.close?.(); } catch {}
           }
           const genMs = thinkingStartRef.current ? performance.now() - thinkingStartRef.current : undefined;
           const aiMsg = {
@@ -262,6 +460,10 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
             generationMs: genMs
           };
           setMessages((prev) => [...prev, aiMsg]);
+          // Seed/append cache for the new session so switching away/back is instant
+          if (sid) {
+            sessionCache.append(sid, [aiMsg]);
+          }
           // If backend returned a confident video pick, append exactly one video message
           const v = data?.video;
           if (v && v.videoId) {
@@ -279,7 +481,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
         }
       } else {
         // Continue existing session
-        resp = await chatService.sendMessage(sessionId, content);
+        resp = await chatService.sendMessage(effectiveSessionId, content);
         const data = resp?.data || {};
         const reply = data.response_text || data.reply || data.content || '';
         const aiMessageId = data.ai_message_id || data.aiMessageId || null;
@@ -287,6 +489,8 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
           const info = extractReminderInfoFromReply(reply);
           if (info) {
             showToastNotification(`Reminder set: ${info.title} at ${info.when}`);
+            try { window.dispatchEvent(new CustomEvent('maya:tasks-updated')); } catch {}
+            try { const bc = new BroadcastChannel('maya_tasks'); bc.postMessage({ type: 'created', ts: Date.now() }); bc.close?.(); } catch {}
           }
           const genMs = thinkingStartRef.current ? performance.now() - thinkingStartRef.current : undefined;
           const aiMsg = {
@@ -301,6 +505,8 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
           setMessages((prev) => [...prev, aiMsg]);
           // Let sidebar refresh session list (message counts, updatedAt) quickly
           try { window.dispatchEvent(new CustomEvent('maya:sessions:refresh')); } catch {}
+          // Update cache for this session
+          sessionCache.append(effectiveSessionId, [aiMsg]);
           const v = data?.video;
           if (v && v.videoId) {
             const ytMsg = {
@@ -611,14 +817,14 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
                       <button 
                         onClick={() => handleCopy(message.content, message.id)} 
                         title="Copy"
-                        className={`action-btn ${copiedMessageId === message.id ? 'copied' : ''}`}
+                        className={`action-btn copy ${copiedMessageId === message.id ? 'copied' : ''}`}
                       >
                         {copiedMessageId === message.id ? <Check size={16} /> : <Copy size={16} />}
                       </button>
                       <button 
                         onClick={() => handleSpeak(message.content, message.id)} 
                         title={speechState.isPlaying && speechState.messageId === message.id ? "Stop" : "Speak"}
-                        className="action-btn"
+                        className="action-btn speak"
                       >
                         {speechState.isPlaying && speechState.messageId === message.id ? 
                           <Square size={16} /> : <Play size={16} />}
@@ -636,6 +842,16 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
                           <Highlighter size={16} />
                         </button>
                       )}
+                      {isAI && (
+                        <button
+                          title="Mini Agent"
+                          aria-label="Open Mini Agent"
+                          className="action-btn agent"
+                          onClick={() => aiMessageRefs.current[message.id]?.openMiniAgent()}
+                        >
+                          <Bot size={16} />
+                        </button>
+                      )}
                       {isUser ? (
                         <button title="Edit" className="action-btn">
                           <Edit2 size={16} />
@@ -645,19 +861,19 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
                           <button 
                             onClick={() => handleFeedback(message.id, 'up')} 
                             title="Good response" 
-                            className="action-btn"
+                            className="action-btn good"
                           >
                             <ThumbsUp size={16} />
                           </button>
                           <button 
                             onClick={() => handleFeedback(message.id, 'down')} 
                             title="Poor response" 
-                            className="action-btn"
+                            className="action-btn bad"
                           >
                             <ThumbsDown size={16} />
                           </button>
                           
-                          <button title="Share" className="action-btn">
+                          <button title="Share" className="action-btn share">
                             <Share2 size={16} />
                           </button>
                         </>
@@ -679,8 +895,10 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
             )}
             <div ref={messagesEndRef} />
           </>
-        )}
-        {/* Fetching overlay: covers messages area until data is ready */}
+  )}
+  {/* Top sentinel for lazy-loading older messages */}
+  <div ref={topSentinelRef} style={{ height: 1 }} />
+  {/* Fetching overlay: covers messages area until data is ready */}
         <div className={`chat-loading-overlay ${isFetching ? 'show' : ''}`} aria-live="polite" role="status">
           <div className="loader-card" aria-hidden={!isFetching}>
             <div className="typing-dots" aria-label={loaderText}>
@@ -793,8 +1011,7 @@ const ChatWindow = ({ chatId, onToggleSidebar }) => {
         <div className="composer-hint" role="status" aria-live="polite">
           <div>
             <p style={{ margin: 0, fontSize: '16px', color: '#333' }}>
-              <strong>Maya may make mistakes.</strong> Please verify important information and
-              <a href="/cookie-preferences" style={{ color: '#58789bff', textDecoration: 'none' }}> review your cookie preferences</a>.
+              Maya may be wrong—check info and cookies.
             </p>
           </div>
         </div>

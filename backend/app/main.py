@@ -1,4 +1,43 @@
 import os
+# Ensure environment variables (including log suppressors) are loaded as early as possible
+try:
+    from pathlib import Path as _Path
+    from dotenv import load_dotenv as _load_dotenv
+    _env_path = _Path(__file__).resolve().parents[1] / ".env"
+    if _env_path.exists():
+        _load_dotenv(dotenv_path=_env_path, override=True)
+except Exception:
+    pass
+
+# Proactively silence gRPC/ALTS and absl stderr noise outside GCP
+os.environ.setdefault("GRPC_VERBOSITY", "NONE")
+os.environ.setdefault("GRPC_TRACE", "")
+os.environ.setdefault("GLOG_minloglevel", "3")  # absl/glog
+os.environ.setdefault("ABSL_LOGGING_MIN_LOG_LEVEL", "3")  # absl
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # if any TF/absl deps are present
+
+# As a last resort, filter specific noisy native logs printed to stderr before init
+try:
+    import sys as _sys
+    class _FilteredStderr:
+        __slots__ = ("_u", "_drops")
+        def __init__(self, underlying):
+            self._u = underlying
+            self._drops = ("alts_credentials.cc", "ALTS creds ignored", "absl::InitializeLog()")
+        def write(self, s):
+            try:
+                if any(x in s for x in self._drops):
+                    return len(s)
+            except Exception:
+                pass
+            return self._u.write(s)
+        def flush(self):
+            return self._u.flush()
+        def isatty(self):
+            return getattr(self._u, "isatty", lambda: False)()
+    _sys.stderr = _FilteredStderr(_sys.stderr)
+except Exception:
+    pass
 # backend/app/main.py
 
 from fastapi import FastAPI, Request, HTTPException
@@ -19,14 +58,17 @@ from app.routers import memories as memories_router
 from app.routers import annotations as annotations_router
 from app.routers import tasks, profile, dashboard, ops
 from app.routers import youtube as youtube_router
-from app.routers import enhanced_memory, database_inspector, data_management
+from app.routers import enhanced_memory, database_inspector, data_management, memory_health
 from app.config import settings
 from app.services import advanced_emotion
+from app.services.memory_validator import validate_memory_connections
 from app.utils.rate_limit import RateLimiter
+from app.utils import email_utils
 from app.services.neo4j_service import neo4j_service
 from app.services import pinecone_service, redis_service
 from app.services.enhanced_memory_service import enhanced_memory_service
 from app.database import db_client
+from app.metrics import API_REQUESTS_TOTAL
 
 # --- Lifespan Management for Connections ---
 @asynccontextmanager
@@ -38,7 +80,7 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.wait_for(asyncio.to_thread(pinecone_service.initialize_pinecone), timeout=15.0)
     except Exception as e:
-        print(f"⚠️ Pinecone init skipped or timed out: {e}")
+        print(f"[WARN] Pinecone init skipped or timed out: {e}")
 
     # Neo4j connect with clearer progressive retry (avoid misleading 'timed out' + later 'connected').
     try:
@@ -56,17 +98,23 @@ async def lifespan(app: FastAPI):
         elapsed = asyncio.get_event_loop().time() - start_ts
         if elapsed - last_log > 2.5:
             remaining = neo4j_timeout - elapsed
-            print(f"⏳ Waiting for Neo4j… (elapsed {elapsed:.1f}s, ~{max(0, remaining):.1f}s left)")
+            print(f"[INFO] Waiting for Neo4j... (elapsed {elapsed:.1f}s, ~{max(0, remaining):.1f}s left)")
             last_log = elapsed
     
     # Initialize enhanced memory service
     try:
         await asyncio.wait_for(enhanced_memory_service.initialize(), timeout=20.0)
-        print("✅ Enhanced memory service initialized")
+        print("[OK] Enhanced memory service initialized")
     except Exception as e:
-        print(f"⚠️ Enhanced memory service init skipped or timed out: {e}")
+        print(f"[WARN] Enhanced memory service init skipped or timed out: {e}")
     if not getattr(neo4j_service, '_driver', None):
-        print(f"⚠️ Neo4j not available after {neo4j_timeout:.1f}s – continuing in degraded mode (graph features disabled)")
+        print(f"[WARN] Neo4j not available after {neo4j_timeout:.1f}s - continuing in degraded mode (graph features disabled)")
+    else:
+        # Start a periodic heartbeat to auto-reconnect if idle sessions drop
+        try:
+            await neo4j_service.start_heartbeat()
+        except Exception:
+            pass
     
     # Create Mongo indexes early
     try:
@@ -78,14 +126,14 @@ async def lifespan(app: FastAPI):
 
     # Verify connections and print status messages
     print("--- Verifying Connections ---")
-    print("✅ MongoDB connected")
+    print("[OK] MongoDB connected")
     try:
         redis_ok = await redis_service.ping()
     except Exception:
         redis_ok = False
-    print("✅ Redis connected" if redis_ok else "❌ Redis not connected")
-    print(f"✅ Pinecone connected" if getattr(pinecone_service, 'index', None) else "❌ Pinecone not connected")
-    print(f"✅ Neo4j connected" if getattr(neo4j_service, '_driver', None) else "❌ Neo4j not connected")
+    print("[OK] Redis connected" if redis_ok else "[ERR] Redis not connected")
+    print(f"[OK] Pinecone connected" if getattr(pinecone_service, 'index', None) else "[ERR] Pinecone not connected")
+    print(f"[OK] Neo4j connected" if getattr(neo4j_service, '_driver', None) else "[ERR] Neo4j not connected")
     
     # Settings already normalize SMTP_USER/SMTP_PASS from MAIL_* if present
     if not (settings.SMTP_USER and settings.SMTP_PASS):
@@ -96,6 +144,10 @@ async def lifespan(app: FastAPI):
     
     # Gracefully close connections on shutdown
     print("--- Application shutting down... ---")
+    try:
+        await neo4j_service.stop_heartbeat()
+    except Exception:
+        pass
     await neo4j_service.close()
     if redis_service.redis_client:
         await redis_service.redis_client.close()
@@ -269,7 +321,12 @@ async def runtime_exc_handler(request: Request, exc: RuntimeError):
 @app.middleware("http")
 async def _wrap_unhandled(request: Request, call_next):
     try:
-        return await call_next(request)
+        resp = await call_next(request)
+        try:
+            API_REQUESTS_TOTAL.labels(status=str(resp.status_code)).inc()
+        except Exception:
+            pass
+        return resp
     except HTTPException:
         # Let FastAPI's HTTPException flow to its handler
         raise
@@ -281,6 +338,10 @@ async def _wrap_unhandled(request: Request, call_next):
         payload = {"error": {"code": 500, "message": "Internal server error"}}
         try:
             print(f"Unhandled exception at {request.url.path}: {e}")
+        except Exception:
+            pass
+        try:
+            API_REQUESTS_TOTAL.labels(status="500").inc()
         except Exception:
             pass
         return JSONResponse(status_code=500, content=payload)
@@ -314,6 +375,31 @@ app.include_router(assistant_router.router)
 app.include_router(enhanced_memory.router)
 app.include_router(database_inspector.router)
 app.include_router(data_management.router)
+app.include_router(memory_health.router)
+
+# --- Realtime (SSE) ---
+try:
+    from fastapi import Depends
+    from fastapi.responses import StreamingResponse
+    from app.security import get_current_active_user
+    from app.services.realtime import realtime_bus, REALTIME_TRANSPORT
+
+    if REALTIME_TRANSPORT == "sse":
+        from fastapi import APIRouter
+        rt_router = APIRouter(prefix="/api/realtime", tags=["Realtime"], dependencies=[Depends(get_current_active_user)])
+
+        @rt_router.get("/stream")
+        async def realtime_stream(current_user: dict = Depends(get_current_active_user)):
+            user_id = str(current_user.get("_id") or current_user.get("user_id") or current_user.get("userId"))
+            async def gen():
+                async for chunk in realtime_bus.sse_iter(user_id):
+                    yield chunk
+            headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+            return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+
+        app.include_router(rt_router)
+except Exception:
+    pass
 
 @app.on_event("startup")
 async def _warm_advanced_emotion():
@@ -323,6 +409,12 @@ async def _warm_advanced_emotion():
             print("Advanced emotion model warmed (stub)")
         except Exception as e:  # noqa: BLE001
             print(f"Advanced emotion warm-load failed: {e}")
+    # Run memory validation at startup (best-effort)
+    try:
+        res = await validate_memory_connections()
+        print(f"[Memory Validation] ok={res.get('ok')} details={res}")
+    except Exception:
+        pass
 
 
 # --- Final CORS enforcement middleware (hardens error paths) ---
@@ -418,3 +510,31 @@ def api_info():
         "origins": origins,
         "allow_all_cors": allow_all,
     }
+
+# --- Simple test email endpoint (dev aid) ---
+@app.get("/test-email", tags=["Email"])
+async def send_test_email(recipient: str):
+    """
+    Sends a simple test email using configured SMTP settings.
+    Note: For dev use. Requires MAIL_* or SMTP_* settings to be set.
+    """
+    # Ensure SMTP configured
+    if not (settings.MAIL_USERNAME and settings.MAIL_PASSWORD and settings.MAIL_FROM):
+        return JSONResponse(status_code=503, content={
+            "ok": False,
+            "error": "SMTP not configured. Set MAIL_USERNAME, MAIL_PASSWORD, and MAIL_FROM in .env",
+        })
+    subject = "Project Maya Test Email"
+    body = "This is a test email from Project Maya backend."
+    html = """
+    <html><body>
+      <h3>Project Maya Test Email</h3>
+      <p>This is a test email from the backend.</p>
+    </body></html>
+    """
+    try:
+        # Run blocking SMTP in a thread to avoid blocking event loop
+        await asyncio.to_thread(email_utils.send_email, recipient, subject, body, html)
+        return {"ok": True, "recipient": recipient}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})

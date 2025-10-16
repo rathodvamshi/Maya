@@ -20,6 +20,7 @@ from app.database import get_tasks_collection
 from app.security import get_current_active_user
 from app.utils.time_utils import parse_user_time_ist
 from app.services import task_service
+from app.services.realtime import realtime_bus, RTEvent
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +263,8 @@ async def create_task(
     tasks = Depends(get_tasks_collection),
 ):
     """
-    Create a new task. Accepts either due_date explicitly (ISO string / datetime) or a natural language 'when' with timezone.
+    Create a new task with comprehensive notification system.
+    Accepts either due_date explicitly (ISO string / datetime) or a natural language 'when' with timezone.
     Stores due_date as naive UTC datetime in Mongo.
     Disallows creating tasks in the past by default to avoid accidental scheduling; set allow_past True in request if needed.
     """
@@ -292,7 +294,76 @@ async def create_task(
         if due_date <= now:
             raise HTTPException(status_code=400, detail="due_date must be in the future")
 
-    # build document with safe defaults
+    # Use enhanced task flow service for comprehensive task creation
+    try:
+        from app.services.task_flow_service import create_task_with_full_flow
+        
+        # Prepare user data for task flow service
+        user_data = {
+            "user_id": user_id,
+            "email": current_user.get("email") or current_user.get("user_email"),
+            "name": current_user.get("name") or current_user.get("username")
+        }
+        
+        # Create task with full flow (notifications, memory storage, etc.)
+        flow_result = await create_task_with_full_flow(
+            user=user_data,
+            title=task_in.title.strip(),
+            due_date_utc=due_date or (datetime.utcnow() + timedelta(hours=1)),
+            description=(task_in.description or "").strip(),
+            priority=task_in.priority or TaskPriority.MEDIUM,
+            tags=task_in.tags or []
+        )
+        
+        if not flow_result["success"]:
+            logger.error(f"Task flow creation failed: {flow_result.get('errors', [])}")
+            # Fall back to basic task creation
+            return await _create_basic_task(task_in, current_user, tasks)
+        
+        # Get the created task from database
+        task_id = flow_result["task_id"]
+        created = tasks.find_one({"_id": ObjectId(task_id)})
+        if not created:
+            raise HTTPException(status_code=500, detail="Task created but could not be read back")
+        
+        # Convert _id for pydantic model
+        created["_id"] = str(created["_id"])
+        
+        # Log successful creation with flow details
+        logger.info(f"Task created with full flow: {task_id}, notifications: {flow_result.get('notifications', {})}")
+        
+        # Emit realtime event
+        try:
+            await realtime_bus.emit(RTEvent(type="task.created", user_id=str(user_id), payload=_to_task_response(created)))
+        except Exception:
+            pass
+        return Task(**created)
+        
+    except Exception as exc:
+        logger.exception("Enhanced task creation failed, falling back to basic: %s", exc)
+        # Fall back to basic task creation
+        return await _create_basic_task(task_in, current_user, tasks)
+
+
+async def _create_basic_task(task_in: TaskCreate, current_user: dict, tasks) -> Task:
+    """Fallback basic task creation without enhanced flow."""
+    user_id = _user_id_value(current_user)
+    
+    # Resolve due date
+    due_date = None
+    if getattr(task_in, "due_date", None):
+        if isinstance(task_in.due_date, datetime):
+            due_date = task_in.due_date
+        else:
+            try:
+                parsed = _parse_when_to_due_date(str(task_in.due_date), task_in.timezone or None, prefer_future=True)
+                due_date = parsed
+            except Exception:
+                due_date = None
+    elif getattr(task_in, "when", None):
+        due_date = _parse_when_to_due_date(task_in.when, task_in.timezone or None, prefer_future=True)
+
+    # Build document with safe defaults
     now = datetime.utcnow()
     doc = {
         "user_id": user_id,
@@ -317,8 +388,13 @@ async def create_task(
     if not created:
         raise HTTPException(status_code=500, detail="Task created but could not be read back")
 
-    # convert _id for pydantic model
+    # Convert _id for pydantic model
     created["_id"] = str(created["_id"])
+    # Emit realtime event
+    try:
+        await realtime_bus.emit(RTEvent(type="task.created", user_id=str(user_id), payload=_to_task_response(created)))
+    except Exception:
+        pass
     return Task(**created)
 
 
@@ -490,6 +566,12 @@ async def update_task(
 
     if getattr(res, "matched_count", 0) == 0:
         raise HTTPException(status_code=404, detail="Task not found")
+    # Emit update event (best-effort)
+    try:
+        payload = {"id": task_id, **{k: v for k, v in data.items() if k != "allow_past"}}
+        await realtime_bus.emit(RTEvent(type="task.updated", user_id=str(user_id), payload=payload))
+    except Exception:
+        pass
     return {"success": True}
 
 
@@ -507,6 +589,11 @@ async def delete_task(
         res = tasks.delete_one({"_id": task_id, "user_id": user_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Task not found")
+    # Emit delete event
+    try:
+        await realtime_bus.emit(RTEvent(type="task.deleted", user_id=str(user_id), payload={"id": task_id}))
+    except Exception:
+        pass
     return {"success": True}
 
 
@@ -532,16 +619,33 @@ async def bulk_update(
     # Perform operation and return per-id info where helpful
     if payload.operation == "delete":
         res = tasks.delete_many(q)
+        # Emit a compact bulk-delete event
+        try:
+            await realtime_bus.emit(RTEvent(type="task.bulk_deleted", user_id=str(user_id), payload={"ids": payload.task_ids}))
+        except Exception:
+            pass
         return {"success": True, "deleted": res.deleted_count}
     elif payload.operation == "complete":
         now = datetime.utcnow()
         res = tasks.update_many(q, {"$set": {"status": TaskStatus.DONE, "completed_at": now, "updated_at": now}})
+        try:
+            await realtime_bus.emit(RTEvent(type="task.bulk_updated", user_id=str(user_id), payload={"status": TaskStatus.DONE, "ids": payload.task_ids}))
+        except Exception:
+            pass
         return {"success": True, "updated": res.modified_count}
     elif payload.operation == "update_status" and payload.status:
         res = tasks.update_many(q, {"$set": {"status": payload.status, "updated_at": datetime.utcnow()}})
+        try:
+            await realtime_bus.emit(RTEvent(type="task.bulk_updated", user_id=str(user_id), payload={"status": payload.status, "ids": payload.task_ids}))
+        except Exception:
+            pass
         return {"success": True, "updated": res.modified_count}
     elif payload.operation == "update_priority" and payload.priority:
         res = tasks.update_many(q, {"$set": {"priority": payload.priority, "updated_at": datetime.utcnow()}})
+        try:
+            await realtime_bus.emit(RTEvent(type="task.bulk_updated", user_id=str(user_id), payload={"priority": payload.priority, "ids": payload.task_ids}))
+        except Exception:
+            pass
         return {"success": True, "updated": res.modified_count}
     else:
         raise HTTPException(status_code=400, detail="Invalid bulk operation")

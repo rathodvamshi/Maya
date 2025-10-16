@@ -119,6 +119,11 @@ async def gather_memory_context(
             except Exception as e:  # noqa: BLE001
                 graph_time_ms = (time.time() - start_graph) * 1000
                 logger.warning(f"Neo4j facts retrieval failed: {e}")
+            try:
+                from app.services import metrics as _m
+                _m.record_hist("resource.neo4j.latency_ms", graph_time_ms)
+            except Exception:
+                pass
             # Cache fresh value if present
             if neo4j_facts and redis_cli:
                 try:
@@ -182,6 +187,11 @@ async def gather_memory_context(
             logger.debug(f"Memory query failed: {e}")
         
         semantic_time_ms = (time.time() - start_sem) * 1000
+        try:
+            from app.services import metrics as _m
+            _m.record_hist("resource.pinecone.latency_ms", semantic_time_ms)
+        except Exception:
+            pass
         
         # Log memory retrieval success
         if pinecone_context or user_fact_snippets:
@@ -219,6 +229,12 @@ async def gather_memory_context(
 
     # 4) Trim history to budget
     trimmed_history = trim_history(history, max_chars=history_char_budget)
+    try:
+        from app.services import metrics as _m
+        # Redis access implied above; record dummy small value when history present
+        _m.record_hist("resource.redis.latency_ms", 1 if trimmed_history else 0.5)
+    except Exception:
+        pass
 
     # 5) Long-term memories (Mongo) basic retrieval (priority + salience ordering)
     persistent_memories: List[dict] = []

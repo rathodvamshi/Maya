@@ -8,6 +8,7 @@ import time, os
 from typing import Dict, Any
 
 from app.services import pinecone_service, memory_store, redis_service
+from app.services.memory_validator import validate_memory_connections
 from app.services.neo4j_service import neo4j_service
 from app.services.ai_service import AI_PROVIDERS  # provider ordering and availability
 from app.services.ai_service import FAILED_PROVIDERS
@@ -70,6 +71,13 @@ async def full_health():
         "pinecone": pine,
         "embedding_queue_length": embed_len,
     }
+
+
+@router.get("/memory")
+async def memory_health():
+    """Run full memory validation including latencies and retry-once behavior."""
+    res = await validate_memory_connections()
+    return {"ok": res.get("ok", False), "details": res}
 
 
 @router.get("/ai-status")

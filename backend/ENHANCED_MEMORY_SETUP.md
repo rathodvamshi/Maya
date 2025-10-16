@@ -19,9 +19,9 @@ Create a `.env` file in the backend directory with the following variables:
 ```bash
 # Pinecone Configuration
 PINECONE_API_KEY=your-pinecone-api-key
-PINECONE_INDEX=maya2-session-memory
+PINECONE_INDEX=maya
 PINECONE_HOST=https://maya-ityq2wh.svc.aped-4627-b74a.pinecone.io
-PINECONE_DIMENSIONS=1536
+PINECONE_DIMENSIONS=1024
 PINECONE_METRIC=cosine
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1

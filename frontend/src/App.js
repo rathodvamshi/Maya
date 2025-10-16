@@ -17,6 +17,7 @@ import ForgotPassword from './components/ForgotPassword';
 import authService from './services/auth';
 import './styles/variables.css';
 import './styles/App.css';
+import realtimeClient from './services/realtimeClient';
 import ResponsiveNavbar from './components/ResponsiveNavbar';
 import { SelectionProvider } from './contexts/SelectionContext';
 // Removed TransitionOverlay for a cleaner, minimal transition
@@ -398,6 +399,8 @@ function App() {
             try {
                 const user = authService.getCurrentUser();
                 setCurrentUser(user);
+                // Start realtime SSE after we know auth state; EventSource uses cookies
+                try { realtimeClient.start(); } catch {}
             } catch (error) {
                 console.error('Auth initialization error:', error);
             } finally {

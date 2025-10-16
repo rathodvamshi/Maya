@@ -10,7 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 import pytz
 import dateparser
-import jsonschema
+try:
+    import importlib as _importlib
+    _jsonschema = _importlib.import_module("jsonschema")  # optional dependency
+except Exception:  # pragma: no cover
+    _jsonschema = None
 import hashlib
 import httpx
 
@@ -134,8 +138,15 @@ def normalize_channel(ch: Optional[str]) -> str:
     return "email"
 
 def validate_schema(obj: Any, schema: dict) -> Tuple[bool, Optional[str]]:
+    """Validate against JSON schema when available; otherwise permissive.
+
+    We keep jsonschema optional to allow lightweight deployments without the
+    dependency while still getting validation in richer environments.
+    """
+    if _jsonschema is None:
+        return True, None
     try:
-        jsonschema.validate(instance=obj, schema=schema)
+        _jsonschema.validate(instance=obj, schema=schema)
         return True, None
     except Exception as e:
         return False, str(e)
@@ -548,7 +559,8 @@ async def _call_gemini_json(user_message: str, clarification_answers: Optional[L
                 "parts": [{"text": _build_prompt(user_message, clarification_answers)}],
             }
         ],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 500},
+        # Strongly request JSON-only output from the model
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 500, "response_mime_type": "application/json"},
     }
     # Attach API key via query string per Google API; retain header for flexibility
     api_key = headers.get("x-goog-api-key", "")
@@ -556,6 +568,8 @@ async def _call_gemini_json(user_message: str, clarification_answers: Optional[L
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
+            import time as _t
+            _t0 = _t.time()
             resp = await client.post(endpoint, headers={"Content-Type": "application/json"}, params=params, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -571,15 +585,34 @@ async def _call_gemini_json(user_message: str, clarification_answers: Optional[L
                 text = None
             if not text:
                 return None
-            # Robustly strip to first JSON object
-            s = text.strip()
+            # Robustly strip to first JSON object and repair minor issues (e.g., trailing commas)
+            s = (text or "").strip()
+            s = s.replace("```json", "").replace("```", "").strip()
             start = s.find("{")
             end = s.rfind("}")
             json_str = s[start:end + 1] if (start != -1 and end != -1 and end > start) else s
-            obj = json.loads(json_str)
+            try:
+                obj = json.loads(json_str)
+            except Exception:
+                # Attempt a minimal, safe repair for trailing commas before } or ]
+                import re as _re
+                repaired = _re.sub(r",\s*([}\]])", r"\1", json_str)
+                obj = json.loads(repaired)
+            try:
+                from app.services.telemetry import log_provider_usage
+                await log_provider_usage("gemini", "nlu", int((_t.time() - _t0) * 1000), True)
+            except Exception:
+                pass
             return _normalize_output(obj)
     except Exception as e:
         logger.warning("Gemini call failed: %s", e)
+        try:
+            from app.services.telemetry import log_provider_usage
+            import time as _t
+            # We don't have exact duration on failure here; leave as 0
+            await log_provider_usage("gemini", "nlu", 0, False)
+        except Exception:
+            pass
         return None
 
 async def extract_intent_entities(

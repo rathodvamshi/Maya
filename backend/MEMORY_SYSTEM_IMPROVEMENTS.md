@@ -147,7 +147,7 @@ GEMINI_API_KEYS=your_gemini_api_keys
 
 # Pinecone
 PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_INDEX=maya2-session-memory
+PINECONE_INDEX=maya
 
 # Neo4j
 NEO4J_URI=your_neo4j_uri

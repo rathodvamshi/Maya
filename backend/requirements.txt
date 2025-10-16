@@ -15,13 +15,12 @@ celery[redis]
 redis
 # Use the official Pinecone v3 SDK package
 pinecone-client>=3.0.0,<4.0.0
-# Enhanced memory system dependencies
-pinecone-client[grpc]>=3.0.0,<4.0.0
+# Use HTTP transport only; avoid gRPC to prevent ALTS warnings outside GCP
 python-dotenv
 httpx>=0.24
 google-generativeai
-cohere
-anthropic
+# Optional tracing over HTTP (not required unless enabling OTEL export)
+# opentelemetry-exporter-otlp-proto-http
 eventlet>=0.33
 neo4j>=5.14
 dateparser

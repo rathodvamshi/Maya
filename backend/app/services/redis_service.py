@@ -198,7 +198,7 @@ async def fetch_adaptive_stats(providers: Optional[list[str]] = None) -> Dict[st
     Safe to call even if redis unavailable (returns empty stats).
     """
     if not providers:
-        providers = ["gemini", "cohere", "anthropic"]
+        providers = ["gemini"]
     result: Dict[str, Any] = {"wins": {}, "avg_latency_ms": {}, "samples": {}}
     client = get_client()
     if not client:

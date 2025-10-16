@@ -1,25 +1,30 @@
 /* MiniAgent.css - polished, modern styles for the floating mini agent */
 
 :root {
-  --mini-bg: #0f1220;
-  --mini-surface: #151a2d;
-  --mini-border: rgba(255,255,255,0.08);
-  --mini-accent: #6a8dff;
-  --mini-accent-2: #00d4ff;
-  --mini-text: #e6e9ef;
-  --mini-text-dim: #aab1c5;
+  /* Dark theme defaults */
+  --mini-bg: #0b1220;                 /* deep navy */
+  --mini-surface: #0f172a;            /* slate-900 */
+  --mini-border: rgba(148,163,184,0.14); /* slate-400/alpha */
+  --mini-accent: #1976d2;             /* brand blue */
+  --mini-accent-2: #4caf50;           /* brand green */
+  --mini-text: #e5e7eb;               /* gray-200 */
+  --mini-text-dim: #9aa4b2;           /* slate-400 */
   --mini-good: #2ecc71;
   --mini-bad: #ff6b6b;
-  --mini-shadow: 0 12px 32px rgba(0,0,0,0.35), 0 2px 10px rgba(0,0,0,0.25);
+  --mini-shadow: 0 18px 40px rgba(0,0,0,0.45), 0 2px 12px rgba(0,0,0,0.3);
 }
 
 .mini-agent-panel {
-  background: linear-gradient(180deg, rgba(21,26,45,0.95), rgba(21,26,45,0.98));
+  background:
+    radial-gradient(800px 320px at 85% -10%, color-mix(in oklab, var(--mini-accent) 16%, transparent), transparent 60%),
+    radial-gradient(600px 260px at 10% 110%, color-mix(in oklab, var(--mini-accent-2) 14%, transparent), transparent 60%),
+    linear-gradient(180deg, color-mix(in oklab, var(--mini-surface) 92%, transparent), color-mix(in oklab, var(--mini-bg) 96%, transparent));
   color: var(--mini-text);
   border: 1px solid var(--mini-border);
   border-radius: 16px;
   box-shadow: var(--mini-shadow);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
   overflow: hidden;
   transform: translateY(6px) scale(0.98);
   animation: mini-pop-in .22s ease forwards;
@@ -33,7 +38,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  background: linear-gradient(90deg, rgba(106,141,255,0.12), rgba(0,212,255,0.08));
+  background: linear-gradient(90deg, color-mix(in oklab, var(--mini-accent) 16%, transparent), color-mix(in oklab, var(--mini-accent-2) 12%, transparent));
   border-bottom: 1px solid var(--mini-border);
   cursor: move;
   user-select: none;
@@ -44,6 +49,7 @@
   gap: 8px;
   font-size: 0.95rem;
 }
+.mini-header-icon { color: var(--mini-accent); display: inline-flex; align-items: center; justify-content: center; }
 .mini-title strong {
   letter-spacing: 0.2px;
 }
@@ -66,7 +72,18 @@
 }
 .mini-controls button:hover {
   background: rgba(255,255,255,0.12);
-  transform: translateY(-1px);
+.mini-msg.user .msg-body {
+  align-self: flex-end;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--mini-accent-2) 20%, transparent), color-mix(in oklab, var(--mini-accent) 10%, transparent));
+}
+.mini-msg.assistant .msg-body {
+  align-self: flex-start;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--mini-accent) 20%, transparent), color-mix(in oklab, var(--mini-accent-2) 10%, transparent));
+}
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
 }
 
 /* Body */
@@ -79,6 +96,29 @@
   background: radial-gradient(1200px 400px at 80% -10%, rgba(106,141,255,0.15), transparent 60%),
               radial-gradient(900px 300px at 0% 100%, rgba(0,212,255,0.14), transparent 60%);
 }
+
+/* Quick actions */
+.mini-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mini-quick-actions.top { margin-top: -2px; }
+.mini-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.06);
+  color: var(--mini-text);
+  border: 1px solid var(--mini-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mini-chip.sm { padding: 4px 8px; font-size: 0.75rem; opacity: 0.95; }
+.mini-chip:hover { background: rgba(255,255,255,0.12); transform: translateY(-1px); }
 
 /* Snippet pill */
 .mini-snippet-pill {
@@ -130,6 +170,8 @@
   letter-spacing: 0.2px;
   box-shadow: 0 4px 18px rgba(0,0,0,0.15);
 }
+.mini-msg.enter { animation: mini-msg-in .2s ease; }
+@keyframes mini-msg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .mini-msg.user .msg-body {
   align-self: flex-end;
   background: linear-gradient(180deg, rgba(0,212,255,0.16), rgba(0,212,255,0.10));
@@ -178,13 +220,14 @@
   resize: none;
   min-height: 44px;
   max-height: 160px;
-  background: var(--mini-surface);
+  background: color-mix(in oklab, var(--mini-surface) 96%, transparent);
   color: var(--mini-text);
   border: 1px solid var(--mini-border);
   border-radius: 12px;
   padding: 10px 12px;
   font-family: inherit;
 }
+.mini-input textarea:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--mini-accent) 40%, transparent); }
 .mini-input textarea::placeholder { color: var(--mini-text-dim); }
 
 .mini-input .mini-input-icons {
@@ -298,3 +341,25 @@
 
 /* Performance hints */
 .mini-messages, .mini-msg .msg-body { will-change: scroll-position, contents; }
+
+/* Light theme variant based on user system preference */
+@media (prefers-color-scheme: light) {
+  :root {
+    --mini-bg: #ffffff;
+    --mini-surface: #f8fafc;              /* slate-50 */
+    --mini-border: rgba(0,0,0,0.08);
+    --mini-text: #1f2937;                  /* slate-800 */
+    --mini-text-dim: #475569;              /* slate-600 */
+    --mini-accent: #1976d2;                /* brand blue */
+    --mini-accent-2: #4caf50;              /* brand green */
+  }
+  .mini-agent-panel {
+    background:
+      radial-gradient(800px 320px at 85% -10%, color-mix(in oklab, var(--mini-accent) 12%, transparent), transparent 60%),
+      radial-gradient(600px 260px at 10% 110%, color-mix(in oklab, var(--mini-accent-2) 10%, transparent), transparent 60%),
+      linear-gradient(180deg, #ffffff, #fbfdff);
+    box-shadow: 0 14px 36px rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.06);
+  }
+  .mini-msg .msg-body { box-shadow: 0 6px 16px rgba(0,0,0,0.06); }
+  .mini-input textarea { background: #ffffff; }
+}

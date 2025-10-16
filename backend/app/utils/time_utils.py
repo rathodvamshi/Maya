@@ -12,7 +12,7 @@ Fallback: if zoneinfo is unavailable, manual +05:30 offset is applied.
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import dateparser
-from typing import Optional
+from typing import Optional, Tuple
 
 IST_ZONE_NAME = "Asia/Kolkata"
 
@@ -50,4 +50,38 @@ def format_ist(dt: Optional[datetime]) -> str:
         return aware.strftime("%Y-%m-%d %H:%M IST")
     return aware.strftime("%Y-%m-%d %H:%M %Z")
 
-__all__ = ["parse_user_time_ist", "format_ist", "IST_ZONE_NAME"]
+
+def ensure_future_ist(dt_utc_naive: Optional[datetime]) -> bool:
+    """Return True if the provided UTC-naive datetime is in the future when interpreted in IST.
+
+    Accepts None and returns False. This normalizes the input as UTC (naive) and compares
+    against current UTC time. Using IST conversion only for formatting consistency; the
+    actual future check is reliable in UTC.
+    """
+    if not dt_utc_naive:
+        return False
+    try:
+        now_utc = datetime.utcnow().replace(tzinfo=None)
+        return dt_utc_naive > now_utc
+    except Exception:
+        return False
+
+__all__ = ["parse_user_time_ist", "format_ist", "ensure_future_ist", "IST_ZONE_NAME"]
+
+
+def parse_and_validate_ist(text: str, min_lead_seconds: int = 5) -> Tuple[datetime, str]:
+    """Parse natural language time as IST, return (due_utc_naive, pretty_ist) or raise ValueError with friendly message.
+
+    - Enforces future-only and minimum lead time in seconds
+    - Stores UTC-naive for internal use; formats IST string for display/confirmation
+    """
+    dt_utc = parse_user_time_ist(text, prefer_future=True)
+    if not dt_utc:
+        raise ValueError("Sorry, I couldn't understand that time. Please try a specific time like 'today 10:30 PM' or 'in 5 minutes'.")
+    now_utc = datetime.utcnow().replace(tzinfo=None)
+    delta = (dt_utc - now_utc).total_seconds()
+    if delta <= 0:
+        raise ValueError("Scheduled time must be in the future (IST).")
+    if delta < max(1, int(min_lead_seconds)):
+        raise ValueError(f"Please allow at least {min_lead_seconds} seconds from now (IST).")
+    return dt_utc.replace(second=0, microsecond=0), format_ist(dt_utc)

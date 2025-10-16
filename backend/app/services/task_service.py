@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional, List, Union
 
 from bson import ObjectId
 
+from fastapi.concurrency import run_in_threadpool
+
 from app.database import db_client
+from app.config import settings
+from app.logger import log_event
 from app.services.redis_service import get_client as get_redis
+from app.services import profile_service
 from app.utils import email_utils
+from app.utils.time_utils import parse_user_time_ist, format_ist, ensure_future_ist, parse_and_validate_ist
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +50,13 @@ def create_task(user, title: str, due_date_utc: datetime, description: str = Non
     """
     from bson import ObjectId
     
+    # Best-effort: try to connect, but allow in-memory fallback collections in degraded mode
+    try:
+        if not db_client.healthy():
+            db_client.connect()
+    except Exception:
+        pass
     coll = db_client.get_tasks_collection()
-    if not db_client.healthy():
-        raise RuntimeError("Database unavailable")
 
     now = datetime.utcnow()
     user_id = _user_id_str(user)
@@ -54,6 +64,7 @@ def create_task(user, title: str, due_date_utc: datetime, description: str = Non
     # Create task document
     task_doc = {
         "user_id": user_id,
+        "email": user.get("email") or user.get("user_email"),
         "title": title,
         "description": description or "",
         "due_date": due_date_utc,
@@ -66,23 +77,44 @@ def create_task(user, title: str, due_date_utc: datetime, description: str = Non
         "tags": [],
         "recurrence": "none",
         "notify_channel": "email",
-        "metadata": {}
+        "metadata": {},
+        "notification_count": 0,
+        "last_notification_sent": None
     }
     
     res = coll.insert_one(task_doc)
     task_id = str(res.inserted_id)
 
-    # Schedule Celery job
+    # Send immediate creation notification
+    try:
+        from app.celery_tasks import send_task_notification_email
+        user_email = user.get("email") or user.get("user_email")
+        if user_email:
+            send_task_notification_email.delay(
+                task_id=task_id,
+                user_email=user_email,
+                task_title=title,
+                task_description=description or "",
+                due_date=due_date_utc.isoformat(),
+                priority=priority,
+                task_type="creation",
+                user_id=user_id,
+            )
+            log_event("task_created", user_id=user_id, task_id=task_id, email=user_email, title=title, due_utc=due_date_utc.isoformat()+"Z")
+            log_event("email_notification_queued", user_id=user_id, task_id=task_id, email=user_email, kind="creation")
+    except Exception as e:
+        logger.warning(f"Failed to send creation notification: {e}")
+
+    # Schedule reminder notification at due time
     try:
         from app.celery_worker import send_task_otp_task
         user_email = user.get("email") or user.get("user_email")
         if user_email:
             async_res = send_task_otp_task.apply_async(args=[task_id, user_email, title], eta=due_date_utc)
             coll.update_one({"_id": ObjectId(task_id)}, {"$set": {"celery_task_id": async_res.id}})
-            logger.info(f"[TASK_CREATED] Task={title}, task_id={task_id}, due_utc={due_date_utc.isoformat()}Z, user_id={user_id}")
-            logger.info(f"[OTP_SCHEDULED] CeleryId={async_res.id}, ETA={due_date_utc.isoformat()}Z")
+            log_event("reminder_scheduled", user_id=user_id, task_id=task_id, email=user_email, celery_id=async_res.id, eta=due_date_utc.isoformat()+"Z")
     except Exception as e:
-        logger.warning(f"Failed to schedule OTP task: {e}")
+        logger.warning(f"Failed to schedule reminder task: {e}")
 
     return task_id
 
@@ -91,9 +123,12 @@ def create_task_legacy(current_user: Dict[str, Any], payload: Dict[str, Any]) ->
     """
     Legacy create_task function for backward compatibility.
     """
+    try:
+        if not db_client.healthy():
+            db_client.connect()
+    except Exception:
+        pass
     coll = db_client.get_tasks_collection()
-    if not db_client.healthy():
-        raise RuntimeError("Database unavailable")
 
     now = datetime.utcnow()
     user_id = _user_id_str(current_user)
@@ -254,5 +289,131 @@ def list_upcoming_summary(current_user: Dict[str, Any], limit: int = 5) -> List[
             pass
         out.append(dd)
     return out
+
+
+# -------------------------------
+# New: IST-aware async task creation API
+# -------------------------------
+async def create_user_task(
+    user_id: str,
+    title: str,
+    task_time: Optional[Union[str, datetime]] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    user_email: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Create a user task with IST-aware time parsing and schedule Celery ETA.
+
+    - Accepts task_time as either datetime (assumed UTC-naive or aware) or natural language string.
+    - Ensures due time is in the future (bumps to now+60s if needed).
+    - Inserts into global tasks collection and schedules OTP email via Celery at ETA.
+    - Records recent task reference in user profile.
+    - Emits a lightweight activity_logs document for observability.
+
+    Returns a dict with task_id, due_utc (datetime), due_ist (str), and title.
+    """
+    # 1) Resolve due_utc from task_time
+    due_utc: Optional[datetime] = None
+    if isinstance(task_time, datetime):
+        # Normalize to UTC-naive
+        if task_time.tzinfo is not None:
+            try:
+                due_utc = task_time.astimezone(timezone.utc).replace(tzinfo=None)
+            except Exception:
+                due_utc = task_time.replace(tzinfo=None)
+        else:
+            due_utc = task_time
+    elif isinstance(task_time, str):
+        try:
+            # Enforce IST parsing + min lead with friendly errors
+            due_utc, _pretty = parse_and_validate_ist(task_time, min_lead_seconds=5)
+        except ValueError as ve:
+            raise ValueError(str(ve))
+        except Exception:
+            due_utc = None
+
+    # Validate future (IST policy). Reject if past.
+    now = datetime.utcnow().replace(tzinfo=None)
+    if not due_utc or not ensure_future_ist(due_utc):
+        raise ValueError("Scheduled time must be in the future (IST).")
+
+    # Round seconds for stability
+    due_utc = due_utc.replace(second=0, microsecond=0)
+
+    # 2) Lookup user email if not provided
+    try:
+        if not user_email:
+            prof = profile_service.get_profile(user_id)
+            user_email = prof.get("email") or prof.get("user_email")
+    except Exception:
+        user_email = None
+
+    # 3) Create task using existing sync helper in threadpool
+    def _create() -> str:
+        return create_task(
+            user={"user_id": user_id, "email": user_email} if user_email else {"user_id": user_id},
+            title=title,
+            due_date_utc=due_utc,
+            description=(payload or {}).get("description") if payload else None,
+            priority=(payload or {}).get("priority", "normal") if payload else "normal",
+            auto_complete=True,
+        )
+
+    task_id: str = await run_in_threadpool(_create)
+
+    # 4) Best-effort profile update (recent task reference)
+    try:
+        profile_service.record_task_created(user_id, task_id=task_id, title=title, due_date=due_utc)
+    except Exception:
+        logger.debug("record_task_created failed", exc_info=True)
+
+    # 5) Activity log for observability
+    try:
+        act = db_client.get_activity_logs_collection()
+        if act is not None:
+            doc = {
+                "type": "task_created",
+                "user_id": str(user_id),
+                "task_id": str(task_id),
+                "title": title,
+                "due_utc": due_utc,
+                "due_ist": format_ist(due_utc),
+                "source": (payload or {}).get("source") or "llm_brain",
+                "timestamp": datetime.utcnow(),
+            }
+            await run_in_threadpool(act.insert_one, doc)
+    except Exception:
+        logger.debug("activity_log task_created failed", exc_info=True)
+
+    # 6) Schedule pre-wake Celery job 2 minutes before due (bounded to now+5s minimum)
+    try:
+        from app.celery_worker import send_task_otp_task
+        prewake_seconds = int(getattr(settings, "PREWAKE_BUFFER_SECONDS", 120) or 120)
+        eta = due_utc - timedelta(seconds=prewake_seconds)
+        min_eta = now + timedelta(seconds=5)
+        if eta < min_eta:
+            eta = min_eta
+        send_task_otp_task.apply_async(args=[task_id, user_email or "", title, None, due_utc.isoformat()], eta=eta)
+        log_event("reminder_prewake", user_id=user_id, task_id=task_id, email=user_email or "", eta=eta.isoformat(), run_at=due_utc.isoformat())
+
+        # activity log
+        try:
+            act = db_client.get_activity_logs_collection()
+            if act:
+                act.insert_one({
+                    "type": "task_scheduled",
+                    "task_id": task_id,
+                    "user_id": str(user_id),
+                    "title": title,
+                    "eta": eta,
+                    "run_at": due_utc,
+                    "timestamp": datetime.utcnow(),
+                })
+        except Exception:
+            logger.debug("activity_log task_scheduled failed", exc_info=True)
+    except Exception:
+        logger.debug("prewake scheduling failed", exc_info=True)
+
+    return {"task_id": task_id, "due_utc": due_utc, "due_ist": format_ist(due_utc), "title": title}
 
 

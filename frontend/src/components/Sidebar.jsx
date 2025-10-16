@@ -44,9 +44,7 @@ const Sidebar = ({
   const historyMenuRef = useRef(null);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [creatingNew, setCreatingNew] = useState(false);
-  const [chatHasContent, setChatHasContent] = useState(() => {
-    try { return localStorage.getItem('maya_chat_has_content') === '1'; } catch { return false; }
-  });
+  // removed unused chatHasContent state (was used to gate New Chat UI)
   // User profile (name/email/avatar)
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -107,7 +105,12 @@ const Sidebar = ({
     }
   };
 
+  // Debounce rapid session switching to avoid overlapping fetches
+  const lastClickRef = useRef(0);
   const handleChatClick = (chatId) => {
+    const now = Date.now();
+    if (now - lastClickRef.current < 150) return; // debounce 150ms
+    lastClickRef.current = now;
     onSelectChat?.(chatId);
     setActiveSessionId(chatId);
     try { localStorage.setItem(ACTIVE_SESSION_KEY, chatId); } catch {/* ignore */}
@@ -217,16 +220,7 @@ const Sidebar = ({
     return () => { cancelled = true; };
   }, []);
 
-  // Subscribe to chat content signal to know if New Chat can be created
-  useEffect(() => {
-    const handler = (e) => {
-      const v = !!(e?.detail?.hasContent);
-      setChatHasContent(v);
-      try { localStorage.setItem('maya_chat_has_content', v ? '1' : '0'); } catch {}
-    };
-    try { window.addEventListener('maya:chat-has-content', handler); } catch {}
-    return () => { try { window.removeEventListener('maya:chat-has-content', handler); } catch {} };
-  }, []);
+  // Removed chat content subscription; New Chat gating moved out.
 
   // Live updates without full page refresh
   useEffect(() => {
@@ -298,8 +292,14 @@ const Sidebar = ({
     // subscribe to global tasks updates to keep sidebar in sync
     const handler = () => { loadTasks(); };
     try { window.addEventListener('maya:tasks-updated', handler); } catch {}
+    let bc;
+    try {
+      bc = new BroadcastChannel('maya_tasks');
+      bc.onmessage = () => loadTasks();
+    } catch {}
     return () => {
       try { window.removeEventListener('maya:tasks-updated', handler); } catch {}
+      try { if (bc) { bc.close(); } } catch {}
     };
   }, [loadTasks]);
 
@@ -559,17 +559,10 @@ const Sidebar = ({
             disabled={creatingNew}
             onClick={async () => {
               if (creatingNew) return;
-              // Guard: only allow creating a new chat if current chat has content
-              if (!chatHasContent) {
-                if (window.addNotification) {
-                  window.addNotification({ type: 'info', title: 'New Chat', message: 'Type something first, then start a new chat.' });
-                }
-                return;
-              }
               setCreatingNew(true);
               setSessionsError('');
               try {
-                // Immediate UI: switch ChatWindow into fresh mode
+                // Immediate UI: switch ChatWindow into fresh mode without affecting other sessions
                 onNewChat?.();
                 const res = await sessionService.createEmpty();
                 const data = res?.data || {};
@@ -596,8 +589,8 @@ const Sidebar = ({
                   window.dispatchEvent(new CustomEvent('maya:active-session', { detail: { id: sid } }));
                   window.dispatchEvent(new CustomEvent('maya:sessions:refresh'));
                 } catch {}
-                // Optionally refresh sessions from backend to get canonical data quickly
-                fetchSessions();
+                // Optionally refresh sessions list from backend to get canonical data quickly (best effort)
+                try { fetchSessions(); } catch {}
                 collapseForMobile();
               } catch (e) {
                 const msg = e?.response?.data?.detail || e?.message || 'Unable to create a new chat';

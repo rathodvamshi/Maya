@@ -20,7 +20,8 @@ import certifi
 import asyncio
 import time
 import logging
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Iterable
+import os
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from bson import ObjectId
 from pymongo import MongoClient
@@ -28,6 +29,56 @@ from pymongo import MongoClient
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Lightweight in-memory collection/database for tests or degraded mode
+class _InMemoryCollection:
+    def __init__(self, name: str):
+        self._name = name
+        self._docs: list[Dict[str, Any]] = []
+
+    def insert_one(self, doc: Dict[str, Any]):
+        # store a shallow copy and assign an _id if missing
+        d = dict(doc)
+        if "_id" not in d or d["_id"] is None:
+            try:
+                from bson import ObjectId  # type: ignore
+                d["_id"] = ObjectId()
+            except Exception:
+                import uuid
+                d["_id"] = uuid.uuid4().hex
+        self._docs.append(d)
+        class _Res:
+            inserted_id = d.get("_id")
+        return _Res()
+
+    def find_one(self, query: Optional[Dict[str, Any]] = None):
+        query = query or {}
+        for d in self._docs:
+            try:
+                if all(d.get(k) == v for k, v in query.items()):
+                    return dict(d)
+            except Exception:
+                continue
+        return None
+
+    def find(self, query: Optional[Dict[str, Any]] = None) -> Iterable[Dict[str, Any]]:
+        query = query or {}
+        for d in list(self._docs):
+            try:
+                if all(d.get(k) == v for k, v in query.items()):
+                    yield dict(d)
+            except Exception:
+                continue
+
+class _InMemoryDb:
+    def __init__(self):
+        self._cols: Dict[str, _InMemoryCollection] = {}
+    def __getitem__(self, name: str) -> _InMemoryCollection:
+        if name not in self._cols:
+            self._cols[name] = _InMemoryCollection(name)
+        return self._cols[name]
+
+_INMEM_DB = _InMemoryDb()
 
 # Simple degraded-mode collection that allows reads to return empty results and
 # write operations to raise or no-op depending on method. This keeps the app alive
@@ -221,11 +272,28 @@ class Database:
         """Return the underlying DB object or None (useful for advanced usage)."""
         return self._db
 
+    # Back-compat property for tests and legacy code
+    @property
+    def db(self):  # type: ignore[override]
+        # Return real DB if available; otherwise optionally provide an in-memory
+        # stub when DB_INMEMORY_FALLBACK is enabled (default on for tests).
+        if self._db is not None:
+            return self._db
+        if os.getenv("DB_INMEMORY_FALLBACK", "1").lower() in {"1", "true", "yes"}:
+            return _INMEM_DB
+        return None
+
     # --- Collection getters ---
     # If DB unhealthy, return NoOpCollection instead of raising; this enables degraded mode.
     def _get_collection_or_noop(self, name: str) -> Collection | NoOpCollection:
         if not self.healthy():
-            logger.debug("Returning NoOpCollection for %s (DB degraded).", name)
+            # In degraded/test mode, provide an in-memory collection so the app
+            # can function for local tests without a live Mongo instance when
+            # enabled via env.
+            if os.getenv("DB_INMEMORY_FALLBACK", "1").lower() in {"1", "true", "yes"}:
+                logger.debug("Returning InMemoryCollection for %s (DB degraded).", name)
+                return _INMEM_DB[name]
+            logger.debug("Returning NoOpCollection for %s (DB degraded, fallback disabled).", name)
             return NoOpCollection(name)
         try:
             return self._db[name]

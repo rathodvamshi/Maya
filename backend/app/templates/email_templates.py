@@ -22,6 +22,12 @@ def render_template(template_name: str, **kwargs) -> str:
         return render_task_reminder_email(**kwargs)
     elif template_name == "task_completion_email.html":
         return render_task_completion_email(**kwargs)
+    elif template_name == "task_creation_email.html":
+        return render_task_creation_email(**kwargs)
+    elif template_name == "task_update_email.html":
+        return render_task_update_email(**kwargs)
+    elif template_name == "welcome_email.html":
+        return render_welcome_email(**kwargs)
     else:
         logger.warning(f"Unknown template: {template_name}")
         return f"<html><body><p>Template {template_name} not found</p></body></html>"
@@ -413,6 +419,319 @@ def render_task_completion_email(title: str, completed_at: Optional[datetime] = 
                 <p>
                     <span class="maya-logo">Maya AI</span> 💫 - Your Personal Assistant<br>
                     <small>Celebrating your achievements!</small>
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+def render_task_creation_email(title: str, description: str, due_date: Optional[str] = None, 
+                              priority: str = "medium", task_id: str = None, **kwargs) -> str:
+    """
+    Render a task creation notification email.
+    """
+    priority_colors = {
+        "low": "#10b981",
+        "medium": "#f59e0b", 
+        "high": "#ef4444",
+        "urgent": "#dc2626"
+    }
+    priority_color = priority_colors.get(priority.lower(), "#6b7280")
+    due_date_str = due_date or "No specific due date"
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>New Task Created - {title}</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                line-height: 1.6;
+                color: #111827;
+                background-color: #f9fafb;
+                margin: 0;
+                padding: 20px;
+            }}
+            .container {{
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }}
+            .header {{
+                background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+                color: white;
+                padding: 30px;
+                text-align: center;
+            }}
+            .header h1 {{
+                margin: 0;
+                font-size: 24px;
+                font-weight: 600;
+            }}
+            .content {{
+                padding: 30px;
+            }}
+            .task-title {{
+                font-size: 20px;
+                font-weight: 600;
+                color: #1f2937;
+                margin-bottom: 20px;
+                text-align: center;
+            }}
+            .task-details {{
+                background-color: #f3f4f6;
+                border-radius: 8px;
+                padding: 20px;
+                margin: 20px 0;
+            }}
+            .detail-row {{
+                display: flex;
+                margin-bottom: 10px;
+            }}
+            .detail-label {{
+                font-weight: 600;
+                color: #374151;
+                min-width: 80px;
+            }}
+            .detail-value {{
+                color: #6b7280;
+            }}
+            .priority-badge {{
+                display: inline-block;
+                background-color: {priority_color};
+                color: white;
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }}
+            .footer {{
+                background-color: #f9fafb;
+                padding: 20px 30px;
+                text-align: center;
+                border-top: 1px solid #e5e7eb;
+            }}
+            .footer p {{
+                margin: 0;
+                color: #6b7280;
+                font-size: 14px;
+            }}
+            .maya-logo {{
+                color: #8b5cf6;
+                font-weight: 600;
+            }}
+            .emoji {{
+                font-size: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1><span class="emoji">📝</span> New Task Created</h1>
+            </div>
+            
+            <div class="content">
+                <div class="task-title">
+                    {title}
+                </div>
+                
+                <p style="text-align: center; color: #6b7280; margin-bottom: 30px;">
+                    A new task has been added to your task list.
+                </p>
+                
+                <div class="task-details">
+                    <div class="detail-row">
+                        <div class="detail-label">Description:</div>
+                        <div class="detail-value">{description}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Due Date:</div>
+                        <div class="detail-value">{due_date_str}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Priority:</div>
+                        <div class="detail-value">
+                            <span class="priority-badge">{priority.upper()}</span>
+                        </div>
+                    </div>
+                    {f'<div class="detail-row"><div class="detail-label">Task ID:</div><div class="detail-value">{task_id}</div></div>' if task_id else ''}
+                </div>
+                
+                <p style="color: #6b7280; font-size: 14px; text-align: center; margin-top: 30px;">
+                    You'll receive reminders based on your task settings.
+                </p>
+            </div>
+            
+            <div class="footer">
+                <p>
+                    <span class="maya-logo">Maya AI</span> 💫 - Your Personal Assistant<br>
+                    <small>Stay organized and productive!</small>
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+def render_task_update_email(title: str, description: str, due_date: Optional[str] = None, 
+                            priority: str = "medium", **kwargs) -> str:
+    """
+    Render a task update notification email.
+    """
+    priority_colors = {
+        "low": "#10b981",
+        "medium": "#f59e0b", 
+        "high": "#ef4444",
+        "urgent": "#dc2626"
+    }
+    priority_color = priority_colors.get(priority.lower(), "#6b7280")
+    due_date_str = due_date or "No specific due date"
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Task Updated - {title}</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                line-height: 1.6;
+                color: #111827;
+                background-color: #f9fafb;
+                margin: 0;
+                padding: 20px;
+            }}
+            .container {{
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }}
+            .header {{
+                background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+                color: white;
+                padding: 30px;
+                text-align: center;
+            }}
+            .header h1 {{
+                margin: 0;
+                font-size: 24px;
+                font-weight: 600;
+            }}
+            .content {{
+                padding: 30px;
+            }}
+            .task-title {{
+                font-size: 20px;
+                font-weight: 600;
+                color: #1f2937;
+                margin-bottom: 20px;
+                text-align: center;
+            }}
+            .task-details {{
+                background-color: #f3f4f6;
+                border-radius: 8px;
+                padding: 20px;
+                margin: 20px 0;
+            }}
+            .detail-row {{
+                display: flex;
+                margin-bottom: 10px;
+            }}
+            .detail-label {{
+                font-weight: 600;
+                color: #374151;
+                min-width: 80px;
+            }}
+            .detail-value {{
+                color: #6b7280;
+            }}
+            .priority-badge {{
+                display: inline-block;
+                background-color: {priority_color};
+                color: white;
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }}
+            .footer {{
+                background-color: #f9fafb;
+                padding: 20px 30px;
+                text-align: center;
+                border-top: 1px solid #e5e7eb;
+            }}
+            .footer p {{
+                margin: 0;
+                color: #6b7280;
+                font-size: 14px;
+            }}
+            .maya-logo {{
+                color: #8b5cf6;
+                font-weight: 600;
+            }}
+            .emoji {{
+                font-size: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1><span class="emoji">✏️</span> Task Updated</h1>
+            </div>
+            
+            <div class="content">
+                <div class="task-title">
+                    {title}
+                </div>
+                
+                <p style="text-align: center; color: #6b7280; margin-bottom: 30px;">
+                    This task has been updated with new information.
+                </p>
+                
+                <div class="task-details">
+                    <div class="detail-row">
+                        <div class="detail-label">Description:</div>
+                        <div class="detail-value">{description}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Due Date:</div>
+                        <div class="detail-value">{due_date_str}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Priority:</div>
+                        <div class="detail-value">
+                            <span class="priority-badge">{priority.upper()}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <p style="color: #6b7280; font-size: 14px; text-align: center; margin-top: 30px;">
+                    Check your task list for the latest updates.
+                </p>
+            </div>
+            
+            <div class="footer">
+                <p>
+                    <span class="maya-logo">Maya AI</span> 💫 - Your Personal Assistant<br>
+                    <small>Keep your tasks up to date!</small>
                 </p>
             </div>
         </div>

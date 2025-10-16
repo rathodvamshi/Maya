@@ -10,6 +10,7 @@ import os
 import json
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from bson import ObjectId
 from celery import Celery, shared_task
@@ -26,7 +27,13 @@ from app.services.neo4j_service import neo4j_sync_service
 from app.services.redis_service import redis_client as _redis_client
 from app.services.pinecone_service import upsert_memory_embedding
 from app.utils import email_utils
+from app import celery_tasks as _register_tasks  # ensure task module is imported/registered
 from app.utils.time_utils import format_ist
+from app.logger import log_event
+try:
+    from app.metrics import TASK_COMPLETION_TOTAL
+except Exception:
+    TASK_COMPLETION_TOTAL = None
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -59,8 +66,13 @@ celery_app = Celery(
     "maya_tasks",
     broker=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}",
     backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}",
-    include=['app.celery_worker'],
+    include=['app.celery_worker', 'app.celery_tasks'],
 )
+try:
+    # Also ensure imports list contains tasks for older Celery versions
+    celery_app.conf.imports = tuple(set((celery_app.conf.imports or ())) | {"app.celery_tasks"})
+except Exception:
+    pass
 celery_app.conf.timezone = "UTC"
 
 # Connect Neo4j if in worker
@@ -69,6 +81,13 @@ if os.environ.get("CELERY_WORKER"):
         neo4j_sync_service.connect()
     except Exception as e:
         logger.error(f"Neo4j sync connect failed: {e}")
+    # Ensure DB connection for worker process (avoid degraded in-memory across processes)
+    try:
+        if not db_client.healthy():
+            ok = db_client.connect()
+            logger.info(f"[WorkerInit] Mongo connect attempted ok={ok}")
+    except Exception as e:
+        logger.warning(f"[WorkerInit] Mongo connect error: {e}")
 
 
 # --- Periodic tasks setup ---
@@ -109,6 +128,11 @@ def audit_log(event: str, payload: dict | None = None, **kwargs):
 def reminder_sweep(window_seconds: int = 60):
     try:
         db = db_client
+        if not db.healthy():
+            try:
+                db.connect()
+            except Exception:
+                pass
         if not db.healthy():
             logger.info("[Reminders] Skip sweep - DB unhealthy")
             return
@@ -195,7 +219,7 @@ def reminder_sweep(window_seconds: int = 60):
                             # Async send email via Celery
                             send_email_task.delay(to_email, subject, body, html_body)
                             emailed += 1
-                            logger.info(f"[Reminders] Email queued task_id={t.get('_id')} user_id={user_id} to={to_email} title='{title}'")
+                            log_event("sweep_email_queued", user_id=str(user_id), task_id=str(t.get("_id")), email=to_email, title=title)
                     except Exception:
                         pass
 
@@ -236,7 +260,7 @@ def send_otp_email_task(to_email: str, otp_code: str):
 
 # --- Task Reminder OTP ---
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
-def send_task_otp_task(self, task_id: str, user_email: str, title: str, otp: str = None):
+def send_task_otp_task(self, task_id: str, user_email: str, title: str, otp: str = None, due_iso: str = None):
     """
     Complete Celery job: send_task_otp_task with logging + OTP + auto-complete as specified.
     """
@@ -276,6 +300,29 @@ def send_task_otp_task(self, task_id: str, user_email: str, title: str, otp: str
         logger.error(f"[OTP_ERROR] Redis SETEX failed for {redis_key}: {e}")
         # still try to send email (optional), but log failure
 
+    # If scheduled as pre-wake, wait until actual due time
+    try:
+        due_target = None
+        if due_iso:
+            try:
+                from datetime import datetime as _dt
+                due_target = _dt.fromisoformat(due_iso.replace("Z",""))
+            except Exception:
+                due_target = None
+        else:
+            due_target = task.get("due_date") if isinstance(task.get("due_date"), datetime) else None
+        if due_target:
+            now = datetime.utcnow()
+            remaining = (due_target - now).total_seconds()
+            if remaining > 0:
+                # sleep in small chunks to allow graceful shutdowns
+                sl = min(remaining, 120)
+                while remaining > 0:
+                    time.sleep(min(1.0, remaining))
+                    remaining -= 1.0
+    except Exception:
+        pass
+
     # 4) prepare email using template
     subject = f"Reminder: {title} (OTP inside)"
     from app.templates.email_templates import render_template
@@ -285,9 +332,9 @@ def send_task_otp_task(self, task_id: str, user_email: str, title: str, otp: str
     # 5) send email
     try:
         ist_str = format_ist(datetime.utcnow())
-        logger.info(f"[OTP_SENDING] Task={task_id}, To={user_email}, OTPKey={redis_key}, TimeUTC={datetime.utcnow().isoformat()} TimeIST={ist_str}")
+        log_event("otp_sending", user_id=str(task.get("user_id")), task_id=str(task_id), email=user_email, otp_key=redis_key, time_utc=datetime.utcnow().isoformat(), time_ist=ist_str)
         send_html_email(to=[user_email], subject=subject, html=html_body, text=text_body)
-        logger.info(f"[OTP_DISPATCH] Task={task_id}, Email={user_email}, RedisTTL=600s")
+        log_event("otp_dispatched", user_id=str(task.get("user_id")), task_id=str(task_id), email=user_email, redis_ttl="600s")
     except Exception as exc:
         logger.exception(f"[OTP_ERROR] sending email for task {task_id}: {exc}")
         raise self.retry(exc=exc)  # will retry with backoff
@@ -298,7 +345,39 @@ def send_task_otp_task(self, task_id: str, user_email: str, title: str, otp: str
             {"_id": ObjectId(task_id)},
             {"$set": {"status": "done", "completed_at": datetime.utcnow(), "updated_at": datetime.utcnow()}}
         )
-        logger.info(f"[TASK_AUTO_COMPLETE] Task={task_id} marked done after email.")
+        # Update user profile embedded task if present
+        try:
+            prof_col = db_client.get_user_profile_collection()
+            if prof_col and task.get("user_id"):
+                prof_col.update_one(
+                    {"_id": str(task.get("user_id"))},
+                    {"$set": {"tasks.$[t].status": "completed", "tasks.$[t].completed_at": datetime.utcnow()}},
+                    array_filters=[{"t.task_id": str(task_id)}],
+                    upsert=True,
+                )
+        except Exception:
+            pass
+
+        # Activity log: task_completed
+        try:
+            act = db_client.get_activity_logs_collection()
+            if act:
+                act.insert_one({
+                    "type": "task_completed",
+                    "task_id": str(task_id),
+                    "user_id": str(task.get("user_id")),
+                    "timestamp": datetime.utcnow(),
+                })
+        except Exception:
+            pass
+
+        log_event("task_auto_complete", user_id=str(task.get("user_id")), task_id=str(task_id), email=user_email)
+
+    # Remove global task after successful send
+    try:
+        coll.delete_one({"_id": ObjectId(task_id)})
+    except Exception:
+        pass
 
     # done
 

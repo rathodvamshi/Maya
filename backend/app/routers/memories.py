@@ -13,6 +13,7 @@ from app.services import memory_service
 from app.database import get_recall_events_collection, get_memories_collection
 from app.database import get_pii_audit_collection
 from app.config import settings
+from app.celery_tasks import process_and_store_memory
 
 router = APIRouter(prefix="/api/memories", tags=["Memories"], dependencies=[Depends(get_current_active_user)])
 
@@ -37,11 +38,37 @@ async def list_user_memories(
 
 
 @router.post("/create", summary="Create a new memory item")
-async def create_memory(payload: dict, current_user: dict = Depends(get_current_active_user)):
+async def create_memory(payload: dict, sync: bool = False, current_user: dict = Depends(get_current_active_user)):
     try:
         payload["user_id"] = str(current_user["_id"])
         doc = await memory_service.create_memory(payload)
-        return doc
+        # Process embedding + pinecone + neo4j
+        text = f"{doc.get('title')}: {doc.get('value','')}"
+        if sync:
+            # Run inline for deterministic behavior when broker/worker aren’t available
+            try:
+                res = process_and_store_memory.apply(args=[payload["user_id"], doc["_id"], text, doc.get("source_type", "user")]).get(timeout=60)
+                return {"status": "processed", "result": res, "memory": doc}
+            except Exception:
+                # Still return created doc if inline processing fails
+                return doc
+        else:
+            try:
+                task = process_and_store_memory.delay(
+                    user_id=payload["user_id"],
+                    memory_id=doc["_id"],
+                    text=text,
+                    source=doc.get("source_type", "user"),
+                )
+                # Return 202 with task id to allow frontend to poll
+                return {"status": "accepted", "task_id": getattr(task, 'id', None), "memory": doc}
+            except Exception:
+                # Fallback: run inline if queueing failed
+                try:
+                    res = process_and_store_memory.apply(args=[payload["user_id"], doc["_id"], text, doc.get("source_type", "user")]).get(timeout=60)
+                    return {"status": "processed", "result": res, "memory": doc}
+                except Exception:
+                    return doc
     except ValueError as ve:  # validation
         raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as e:  # noqa: BLE001
@@ -62,6 +89,27 @@ async def update_memory(memory_id: str, patch: dict, current_user: dict = Depend
     if not updated:
         raise HTTPException(status_code=404, detail="not_found")
     return updated
+
+
+@router.post("/{memory_id}/reprocess", summary="Re-run memory pipeline for an existing memory")
+async def reprocess_memory(memory_id: str, sync: bool = True, current_user: dict = Depends(get_current_active_user)):
+    doc = await memory_service.get_memory(str(current_user["_id"]), memory_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="not_found")
+    text = f"{doc.get('title')}: {doc.get('value','')}"
+    user_id = str(current_user["_id"])
+    if sync:
+        try:
+            res = process_and_store_memory.apply(args=[user_id, memory_id, text, doc.get("source_type", "user")]).get(timeout=60)
+            return {"status": "processed", "result": res}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"reprocess_failed: {e}")
+    else:
+        try:
+            task = process_and_store_memory.delay(user_id=user_id, memory_id=memory_id, text=text, source=doc.get("source_type", "user"))
+            return {"status": "accepted", "task_id": getattr(task, 'id', None)}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"queue_failed: {e}")
 
 
 @router.post("/{memory_id}/confirm", summary="Confirm candidate memory and promote to active")

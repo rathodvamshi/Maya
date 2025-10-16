@@ -36,20 +36,22 @@ class Settings(BaseSettings):
     PINECONE_API_KEY: str
     PINECONE_ENVIRONMENT: Optional[str] = None
     PINECONE_ENV: Optional[str] = None
-    PINECONE_INDEX: str = "maya2-session-memory"
-    PINECONE_HOST: str = "https://maya-ityq2wh.svc.aped-4627-b74a.pinecone.io"
-    PINECONE_DIMENSIONS: int = 1536
+    PINECONE_INDEX: str = "maya"
+    PINECONE_HOST: str = ""
+    PINECONE_DIMENSIONS: int = 1024
     PINECONE_METRIC: str = "cosine"
     PINECONE_CLOUD: str = "aws"
     PINECONE_REGION: str = "us-east-1"
 
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_API_KEYS: Optional[str] = None
-    COHERE_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
 
     GOOGLE_MODEL: str = "gemini-1.5-flash"
-    COHERE_MODEL: str = "command-r7b"
+    # Cohere removed
+    COHERE_API_KEY: Optional[str] = None
+    COHERE_MODEL: str = ""
     ANTHROPIC_MODEL: str = "claude-3-haiku-20240307"
 
     EMBEDDING_MODEL_VERSION: str = "text-embedding-004"
@@ -64,8 +66,8 @@ class Settings(BaseSettings):
     AI_MAX_PARALLEL: int = 1
     AI_PROVIDER_ORDER: Optional[str] = None  # Comma-separated override order
     PRIMARY_PROVIDER: Optional[str] = None  # e.g., "gemini"
-    FALLBACK_PROVIDER: Optional[str] = None  # e.g., "cohere"
-    # Custom ordering specifically for fact extraction task (comma list, e.g., "gemini,cohere,anthropic")
+    FALLBACK_PROVIDER: Optional[str] = None  # e.g., "gemini"
+    # Custom ordering specifically for fact extraction task (comma list, e.g., "gemini,anthropic")
     FACT_EXTRACT_PROVIDER_ORDER: Optional[str] = None
 
     # 🧠 Neo4j Knowledge Graph
@@ -100,6 +102,8 @@ class Settings(BaseSettings):
     MAIL_SERVER: str = "smtp.gmail.com"
     MAIL_PORT: int = 587
     MAIL_STARTTLS: bool = True
+    # Pre-wake buffer in seconds (env-driven)
+    PREWAKE_BUFFER_SECONDS: int = 120  # 2 minutes default
     MAIL_SSL_TLS: bool = False
 
     SMTP_USER: Optional[str] = None
@@ -218,4 +222,4 @@ if os.getenv("DEBUG_CONFIG", "false").lower() == "true":
     print(f"MongoDB: {settings.MONGO_DB}")
     print(f"Neo4j: {settings.NEO4J_URI}")
     print(f"Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
-    print(f"Gemini: {bool(settings.GEMINI_API_KEY)} | Cohere: {bool(settings.COHERE_API_KEY)} | Anthropic: {bool(settings.ANTHROPIC_API_KEY)}\n")
+    print(f"Gemini configured: {bool(settings.GEMINI_API_KEY)}\n")
